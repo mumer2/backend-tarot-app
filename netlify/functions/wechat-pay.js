@@ -34,8 +34,8 @@ exports.handler = async (event) => {
     const appid = process.env.WECHAT_APPID;
     const mch_id = process.env.WECHAT_MCH_ID;
     const key = process.env.WECHAT_API_KEY;
-    const notify_url = "https://backend-tarot.netlify.app/.netlify/functions/wechat-notify";
-    const redirect_url = "https://your-success-url.com"; // Replace with your whitelisted domain
+    const notify_url = "https://backend-tarot-app.netlify.app/.netlify/functions/wechat-notify";
+    const redirect_url = "https://tarotstation.com/payment-success"; // ✅ Your whitelisted redirect page
     const trade_type = "MWEB";
 
     const params = {
@@ -45,13 +45,13 @@ exports.handler = async (event) => {
       body: "Tarot Wallet Recharge",
       out_trade_no,
       total_fee: total_fee.toString(),
-      spbill_create_ip: "127.0.0.1",
+      spbill_create_ip: event.headers['x-forwarded-for']?.split(',')[0] || "127.0.0.1",
       notify_url,
       trade_type,
       scene_info: JSON.stringify({
         h5_info: {
           type: "Wap",
-          wap_url: "https://yourdomain.com", // Replace with your site
+          wap_url: "https://tarotstation.com",  // ✅ Must be whitelisted in WeChat
           wap_name: "Tarot Wallet"
         }
       })
@@ -102,7 +102,7 @@ exports.handler = async (event) => {
       };
     }
   } catch (err) {
-    console.error("❌ WeChat H5 Pay Error:", err);
+    console.error("❌ WeChat H5 Pay Error:", err.message || err, err.stack);
     return {
       statusCode: 500,
       body: JSON.stringify({
