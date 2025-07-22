@@ -38,24 +38,19 @@ exports.handler = async (event) => {
     const redirect_url = "https://tarotstation.com/payment-success"; // ✅ Your whitelisted redirect page
     const trade_type = "MWEB";
 
-    const params = {
-      appid,
-      mch_id,
-      nonce_str: generateNonceStr(),
-      body: "Tarot Wallet Recharge",
-      out_trade_no,
-      total_fee: total_fee.toString(),
-      spbill_create_ip: event.headers['x-forwarded-for']?.split(',')[0] || "127.0.0.1",
-      notify_url,
-      trade_type,
-      scene_info: JSON.stringify({
-        h5_info: {
-          type: "Wap",
-          wap_url: "https://tarotstation.com",  // ✅ Must be whitelisted in WeChat
-          wap_name: "Tarot Wallet"
-        }
-      })
-    };
+   const params = {
+  appid,
+  mch_id,
+  nonce_str: generateNonceStr(),
+  body: "Tarot Wallet Recharge",
+  out_trade_no,
+  total_fee: total_fee.toString(),
+  spbill_create_ip: event.headers['x-forwarded-for']?.split(',')[0] || "8.8.8.8",
+  notify_url,
+  trade_type,
+  scene_info: `{"h5_info":{"type":"Wap","wap_url":"https://tarotstation.com","wap_name":"Tarot Wallet"}}`
+};
+
 
     const sign = createSign(params, key);
     const builder = new xml2js.Builder({ rootName: "xml", headless: true, cdata: true });
