@@ -1,39 +1,55 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      body: JSON.stringify({ error: 'Method Not Allowed' }),
+    };
+  }
+
   try {
-    const { amount, userId } = JSON.parse(event.body);
+    const data = JSON.parse(event.body);
+    const { amount, userId } = data;
+
+    if (!amount || !userId) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Amount and userId are required' }),
+      };
+    }
+
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'], // Apple Pay will show automatically on supported devices
+      payment_method_types: ['card'], // Apple Pay is included here
       line_items: [
         {
           price_data: {
             currency: 'usd',
             product_data: {
-              name: 'Wallet Recharge'
+              name: 'Tarot AI Wallet Recharge',
             },
-            unit_amount: Math.round(amount * 100)
+            unit_amount: amount * 100, // in cents
           },
-          quantity: 1
-        }
+          quantity: 1,
+        },
       ],
       mode: 'payment',
-      success_url: `https://yourdomain.com/success.html?userId=${userId}`,
-      cancel_url: `https://yourdomain.com/cancel.html?userId=${userId}`,
+      success_url: 'https://successscreen.netlify.app/success.html',
+      cancel_url: 'https://successscreen.netlify.app/cancel.html',
       metadata: {
-        userId
-      }
+        userId, // passed for wallet tracking
+      },
     });
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ paymentUrl: session.url })
+      body: JSON.stringify({ sessionId: session.id, url: session.url }),
     };
   } catch (err) {
-    console.error('Stripe error:', err);
+    console.error('❌ Apple Pay session error:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Apple Pay failed', message: err.message })
+      body: JSON.stringify({ error: err.message || 'Internal Server Error' }),
     };
   }
 };
