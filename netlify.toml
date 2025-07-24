@@ -1,2 +1,14 @@
 [build]
   functions = "netlify/functions"
+
+
+[[functions]]
+  name = "stripe-webhook"
+  runtime = "nodejs18.x"
+  included_files = ["stripe-webhook.js"]
+  node_bundler = "esbuild"
+  [functions.stripe-webhook]
+    included_files = []
+    external_node_modules = ["mongodb", "stripe"]
+  # Important!
+  encoding = "base64"
