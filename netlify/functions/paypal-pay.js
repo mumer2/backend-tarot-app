@@ -1,15 +1,24 @@
 const axios = require('axios');
 
-const CLIENT_ID = 'YOUR_SANDBOX_CLIENT_ID'; // Replace with your actual Sandbox Client ID
-const SECRET = 'YOUR_SANDBOX_SECRET';       // Replace with your actual Sandbox Secret
+// Load from Netlify env vars (.env or Netlify Dashboard)
+const CLIENT_ID = process.env.YOUR_SANDBOX_CLIENT_ID;
+const SECRET = process.env.YOUR_SANDBOX_SECRET;
 const PAYPAL_API = 'https://api-m.sandbox.paypal.com';
 
 exports.handler = async function (event, context) {
   try {
-    console.log('⚙️ PayPal create-order function called');
+    console.log('📦 [create-order] Function triggered');
 
     const body = JSON.parse(event.body || '{}');
-    const amount = body.amount || 10.00; // fallback to 10 RMB if none provided
+    const amount = body.amount || 10;
+
+    if (!CLIENT_ID || !SECRET) {
+      console.error('❌ Missing PayPal credentials');
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Missing PayPal credentials' })
+      };
+    }
 
     if (!amount || isNaN(amount)) {
       return {
@@ -18,7 +27,7 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // Step 1: Generate Access Token
+    // Step 1: Get access token
     const auth = Buffer.from(`${CLIENT_ID}:${SECRET}`).toString('base64');
     const tokenRes = await axios.post(
       `${PAYPAL_API}/v1/oauth2/token`,
@@ -30,10 +39,10 @@ exports.handler = async function (event, context) {
         }
       }
     );
-    const accessToken = tokenRes.data.access_token;
-    console.log('✅ Access token obtained');
 
-    // Step 2: Create PayPal Order
+    const accessToken = tokenRes.data.access_token;
+
+    // Step 2: Create order
     const orderRes = await axios.post(
       `${PAYPAL_API}/v2/checkout/orders`,
       {
@@ -41,7 +50,7 @@ exports.handler = async function (event, context) {
         purchase_units: [
           {
             amount: {
-              currency_code: 'USD', // or 'CNY' if your account supports it
+              currency_code: 'USD', // or 'CNY' if supported
               value: amount.toString()
             }
           }
@@ -71,18 +80,16 @@ exports.handler = async function (event, context) {
       };
     }
 
-    console.log('✅ PayPal order created');
-
     return {
       statusCode: 200,
       body: JSON.stringify({ approvalUrl })
     };
   } catch (err) {
-    console.error('❌ PayPal API Error:', err.response?.data || err.message);
+    console.error('❌ PayPal error:', err.response?.data || err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({
-        error: 'PayPal server error',
+        error: 'PayPal error',
         message: err.response?.data || err.message
       })
     };
