@@ -56,8 +56,8 @@ exports.handler = async function (event) {
           brand_name: 'Tarot Station',
           landing_page: 'LOGIN',
           user_action: 'PAY_NOW',
-          return_url: 'https://your-site.netlify.app/success',
-          cancel_url: 'https://your-site.netlify.app/cancel'
+          return_url: 'https://successscreen.netlify.app/success.html',
+          cancel_url: 'https://successscreen.netlify.app/cancel.html'
         }
       },
       {
