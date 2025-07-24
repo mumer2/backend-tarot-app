@@ -1,22 +1,20 @@
 const axios = require('axios');
 
-// Load from Netlify env vars (.env or Netlify Dashboard)
-const CLIENT_ID = process.env.YOUR_SANDBOX_CLIENT_ID;
-const SECRET = process.env.YOUR_SANDBOX_SECRET;
+const CLIENT_ID = process.env.PAYPAL_CLIENT_ID;  // ✅ must match Netlify env var name
+const SECRET = process.env.PAYPAL_SECRET;
 const PAYPAL_API = 'https://api-m.sandbox.paypal.com';
 
-exports.handler = async function (event, context) {
+exports.handler = async function (event) {
   try {
-    console.log('📦 [create-order] Function triggered');
+    console.log('📦 PayPal create-order triggered');
 
     const body = JSON.parse(event.body || '{}');
     const amount = body.amount || 10;
 
     if (!CLIENT_ID || !SECRET) {
-      console.error('❌ Missing PayPal credentials');
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: 'Missing PayPal credentials' })
+        body: JSON.stringify({ error: 'Missing PayPal credentials from env vars' })
       };
     }
 
@@ -27,7 +25,7 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // Step 1: Get access token
+    // 🔐 Step 1: Get access token
     const auth = Buffer.from(`${CLIENT_ID}:${SECRET}`).toString('base64');
     const tokenRes = await axios.post(
       `${PAYPAL_API}/v1/oauth2/token`,
@@ -39,10 +37,9 @@ exports.handler = async function (event, context) {
         }
       }
     );
-
     const accessToken = tokenRes.data.access_token;
 
-    // Step 2: Create order
+    // 💵 Step 2: Create order
     const orderRes = await axios.post(
       `${PAYPAL_API}/v2/checkout/orders`,
       {
@@ -50,7 +47,7 @@ exports.handler = async function (event, context) {
         purchase_units: [
           {
             amount: {
-              currency_code: 'USD', // or 'CNY' if supported
+              currency_code: 'USD',
               value: amount.toString()
             }
           }
