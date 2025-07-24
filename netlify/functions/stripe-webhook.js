@@ -1,7 +1,6 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { MongoClient } = require('mongodb');
 
-// Cache the MongoDB connection between calls (recommended in serverless)
 let cachedDb = null;
 
 const connectToDatabase = async (uri) => {
@@ -38,7 +37,7 @@ exports.handler = async (event) => {
     };
   }
 
-  // ✅ Handle only successful payment
+  // ✅ Handle only successful payments
   if (stripeEvent.type === 'checkout.session.completed') {
     const session = stripeEvent.data.object;
     const userId = session.metadata?.userId;
@@ -52,14 +51,27 @@ exports.handler = async (event) => {
     try {
       const db = await connectToDatabase(process.env.MONGO_URI);
       const wallets = db.collection('wallets');
+      const recharges = db.collection('recharges');
 
+      // Update wallet balance
       const result = await wallets.updateOne(
         { userId },
         { $inc: { balance: amount } },
         { upsert: true }
       );
 
-      console.log(`✅ Wallet updated for user ${userId}: +${amount} USD`, result);
+      // Save recharge history
+      await recharges.insertOne({
+        userId,
+        amount,
+        method: 'Stripe (Apple Pay)',
+        timestamp: new Date(),
+        sessionId: session.id,
+        email: session.customer_email || '',
+        status: 'completed'
+      });
+
+      console.log(`✅ Wallet updated and recharge logged for user ${userId}: +${amount} USD`);
     } catch (err) {
       console.error('❌ Database error:', err.message);
       return {
