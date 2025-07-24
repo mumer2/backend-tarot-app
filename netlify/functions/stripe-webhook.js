@@ -51,7 +51,7 @@ exports.handler = async (event) => {
     try {
       const db = await connectToDatabase(process.env.MONGO_URI);
       const wallets = db.collection('wallets');
-      const recharges = db.collection('recharges');
+      const recharges = db.collection('wallet_history');
 
       // Update wallet balance
       const result = await wallets.updateOne(

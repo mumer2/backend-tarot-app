@@ -20,7 +20,7 @@ exports.handler = async (event) => {
     if (!userId) return { statusCode: 400, body: 'Missing userId' };
 
     const db = await connectToDatabase(process.env.MONGO_URI);
-    const recharges = db.collection('recharges');
+    const recharges = db.collection('wallet_history');
 
     const history = await recharges
       .find({ userId })
