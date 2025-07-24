@@ -20,7 +20,7 @@ exports.handler = async (event) => {
     }
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'], // Includes Apple Pay, Google Pay, regular cards
+      payment_method_types: ['card'], // Apple Pay is included here
       line_items: [
         {
           price_data: {
@@ -28,7 +28,7 @@ exports.handler = async (event) => {
             product_data: {
               name: 'Tarot AI Wallet Recharge',
             },
-            unit_amount: Math.round(amount * 100), // cents, integer only
+            unit_amount: Math.round(amount * 100), // in cents
           },
           quantity: 1,
         },
@@ -37,24 +37,23 @@ exports.handler = async (event) => {
       success_url: 'https://successscreen.netlify.app/success.html',
       cancel_url: 'https://successscreen.netlify.app/cancel.html',
       metadata: {
-        userId: userId,
+        userId,
       },
     });
 
+    // Return full session and URL for client
     return {
       statusCode: 200,
       body: JSON.stringify({
         sessionId: session.id,
-        paymentUrl: session.url,
+        paymentUrl: session.url, // ✅ Must return this
       }),
     };
   } catch (err) {
-    console.error('❌ Stripe session creation failed:', err);
+    console.error('❌ Apple Pay session error:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: err.message || 'Internal Server Error',
-      }),
+      body: JSON.stringify({ error: err.message || 'Internal Server Error' }),
     };
   }
 };
