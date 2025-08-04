@@ -1,4 +1,3 @@
-// netlify/functions/signup.js
 const bcrypt = require('bcryptjs');
 const connectDB = require('./utils/db');
 const { generateToken } = require('./utils/auth');
@@ -27,13 +26,39 @@ exports.handler = async (event) => {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Name, password and either email or phone are required' }),
+        body: JSON.stringify({ message: 'Name, password, and either email or phone are required.' }),
+      };
+    }
+
+    // Email or phone format validation
+    const isPhone = phone && /^1[3-9]\d{9}$/.test(phone);
+    const isEmail = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (phone && !isPhone) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'Invalid phone number format' }),
+      };
+    }
+    if (email && !isEmail) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'Invalid email format' }),
+      };
+    }
+
+    if (password.length < 6) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'Password must be at least 6 characters long' }),
       };
     }
 
     const db = await connectDB();
 
-    // Check if user already exists
+    // Check if phone or email already exists
     const existingUser = await db.collection('users').findOne({
       $or: [{ email: email || null }, { phone: phone || null }],
     });
@@ -42,7 +67,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 409,
         headers: corsHeaders(),
-        body: JSON.stringify({ message: 'User already exists' }),
+        body: JSON.stringify({ message: 'User with this email or phone already exists' }),
       };
     }
 
