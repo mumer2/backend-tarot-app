@@ -64,7 +64,7 @@ exports.handler = async (event) => {
       ExtendNo: '',
       ProductId: PRODUCT_ID,
       PhoneNos: formattedPhone,
-      Content: `【Calorie AI】Your verification code is ${code}`,
+      Content: `【】Your verification code is ${code}`,
       SendTime: '',
       OutId: '',
     };
