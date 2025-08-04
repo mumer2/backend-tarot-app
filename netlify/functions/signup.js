@@ -22,80 +22,50 @@ exports.handler = async (event) => {
   try {
     const { name, email, phone, password } = JSON.parse(event.body);
 
+    // ✅ Required fields
     if (!name || !password || (!email && !phone)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          message: 'Name, password, and either email or phone are required',
-        }),
-      };
+      return errorResponse(400, 'Name, password, and either email or phone are required');
     }
 
-    // Validate name length
+    // ✅ Name validation
     if (name.trim().length < 2) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          message: 'Name must be at least 2 characters long',
-        }),
-      };
+      return errorResponse(400, 'Name must be at least 2 characters long');
     }
 
-    // Validate password strength
+    // ✅ Password validation
     const passwordRegex = /^(?=.*\d).{6,}$/;
     if (!passwordRegex.test(password)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          message: 'Password must be at least 6 characters and include a number',
-        }),
-      };
+      return errorResponse(400, 'Password must be at least 6 characters and include a number');
     }
 
-    // Validate email or phone
+    // ✅ Email and Phone validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneRegex = /^[0-9]{6,15}$/;
 
     if (email && !emailRegex.test(email)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Invalid email format' }),
-      };
+      return errorResponse(400, 'Invalid email format');
     }
 
     if (phone && !phoneRegex.test(phone)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Phone number must be 6–15 digits' }),
-      };
+      return errorResponse(400, 'Phone number must be 6–15 digits');
     }
 
     const db = await connectDB();
     const users = db.collection('users');
 
-    // Check for existing user by email or phone
+    // ✅ Check for existing user
     const existingUser = await users.findOne({
       $or: [
-        email ? { email: email.toLowerCase() } : {},
-        phone ? { phone } : {},
-      ],
+        email ? { email: email.toLowerCase() } : null,
+        phone ? { phone } : null,
+      ].filter(Boolean), // remove null entries
     });
 
     if (existingUser) {
-      return {
-        statusCode: 409,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          message: 'User with same email or phone already exists',
-        }),
-      };
+      return errorResponse(409, 'User with same email or phone already exists');
     }
 
+    // ✅ Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = {
       name: name.trim(),
@@ -108,10 +78,11 @@ exports.handler = async (event) => {
 
     await users.insertOne(newUser);
 
+    // ✅ Generate token
     const token = generateToken({
       email: email || '',
       phone: phone || '',
-      name,
+      name: name.trim(),
     });
 
     return {
@@ -120,31 +91,38 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         token,
         user: {
-          name,
+          name: name.trim(),
           email: email || null,
           phone: phone || null,
         },
       }),
     };
   } catch (error) {
-    console.error('Signup error:', error);
-    return {
-      statusCode: 500,
-      headers: corsHeaders(),
-      body: JSON.stringify({
-        message: 'Signup failed',
-        error: error.message,
-      }),
-    };
+    console.error('❌ Signup error:', error);
+    return errorResponse(500, 'Signup failed', error.message);
   }
 };
 
+// ✅ Utility: CORS headers
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Content-Type': 'application/json',
+  };
+}
+
+// ✅ Utility: Standard error response
+function errorResponse(statusCode, message, error = null) {
+  return {
+    statusCode,
+    headers: corsHeaders(),
+    body: JSON.stringify({
+      success: false,
+      message,
+      ...(error && { error }),
+    }),
   };
 }
 
