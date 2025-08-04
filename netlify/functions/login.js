@@ -22,7 +22,6 @@ exports.handler = async (event) => {
   try {
     const { email, phone, password } = JSON.parse(event.body);
 
-    // ✅ Ensure all required fields
     if (!password || (!email && !phone)) {
       return {
         statusCode: 400,
@@ -36,26 +35,14 @@ exports.handler = async (event) => {
     const db = await connectDB();
     const users = db.collection('users');
 
-    // ✅ Clean query for either phone or email
+    // 🧠 Support login via either email or phone
     const query = email
       ? { email: email.toLowerCase() }
-      : { phone: String(phone).trim() }; // Make sure phone is stored as a string
+      : { phone: phone.replace(/\s+/g, '') };
 
     const user = await users.findOne(query);
 
-    if (!user) {
-      return {
-        statusCode: 401,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'User not found' }),
-      };
-    }
-
-    // ✅ Match correct password field
-    const storedHash = user.passwordHash || user.password; // fallback
-    const passwordMatch = await bcrypt.compare(password, storedHash);
-
-    if (!passwordMatch) {
+    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return {
         statusCode: 401,
         headers: corsHeaders(),
@@ -63,7 +50,6 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ Generate token
     const token = generateToken({
       id: user._id,
       email: user.email || '',
