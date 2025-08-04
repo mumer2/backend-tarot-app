@@ -6,25 +6,29 @@ const { MongoClient } = require('mongodb');
 const ACCOUNT_ID = process.env.LMLOBILE_ACCOUNT_ID;
 const PASSWORD = process.env.LMLOBILE_PASSWORD;
 const PRODUCT_ID = process.env.LMLOBILE_PRODUCT_ID;
+const SIGNATURE = process.env.LMLOBILE_SIGNATURE || ''; // Optional signature
 const ENCRYPT_KEY = 'SMmsEncryptKey';
 const MONGO_URI = process.env.MONGO_URI;
 
-// 🔐 Utility functions
+// Utility hash functions
 const md5 = (input) => crypto.createHash('md5').update(input).digest('hex').toUpperCase();
 const sha256 = (input) => crypto.createHash('sha256').update(input).digest('hex').toLowerCase();
 
-// ✅ Format phone to international format (e.g., 923001234567)
-const formatPhoneNumber = (phone) => {
+// ✅ Format phone (basic cleanup)
+const formatPhoneNumber = (phone, countryCode = '92') => {
   let formatted = phone.trim().replace(/\s+/g, '');
 
-  // Remove '+' if exists
   if (formatted.startsWith('+')) {
     formatted = formatted.slice(1);
   }
 
-  return formatted; 
-};
+  if (/^1[3-9]\d{9}$/.test(formatted)) {
+    return formatted; // Already in Chinese mobile format
+  }
 
+  // Fallback: return with country code
+  return `${countryCode}${formatted}`;
+};
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -44,8 +48,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ Format and log final phone number
-    const formattedPhone = formatPhoneNumber(phone, countryCode || '92');
+    const formattedPhone = formatPhoneNumber(phone, countryCode);
     console.log('✅ Final PhoneNos:', formattedPhone);
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -56,6 +59,9 @@ exports.handler = async (event) => {
     const accessKeyString = `AccountId=${ACCOUNT_ID}&PhoneNos=${formattedPhone}&Password=${passwordHash}&Random=${random}&Timestamp=${timestamp}`;
     const accessKey = sha256(accessKeyString);
 
+    const safeSignature = SIGNATURE.startsWith('【') && SIGNATURE.endsWith('】') ? SIGNATURE : '';
+    const content = `${safeSignature}您的验证码是 ${code}，5分钟内有效。`;
+
     const requestBody = {
       AccountId: ACCOUNT_ID,
       AccessKey: accessKey,
@@ -64,7 +70,7 @@ exports.handler = async (event) => {
       ExtendNo: '',
       ProductId: PRODUCT_ID,
       PhoneNos: formattedPhone,
-      Content: `【】Your verification code is ${code}`,
+      Content: content,
       SendTime: '',
       OutId: '',
     };
