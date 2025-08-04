@@ -3,9 +3,9 @@ const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
 
 // 🔐 Secure credentials
-const ACCOUNT_ID = process.env.LMLOBILE_ACCOUNT_ID || 'dlbjzy22';
-const PASSWORD = process.env.LMLOBILE_PASSWORD || 'Czhangyue123';
-const PRODUCT_ID = process.env.LMLOBILE_PRODUCT_ID || '1012818';
+const ACCOUNT_ID = process.env.LMLOBILE_ACCOUNT_ID;
+const PASSWORD = process.env.LMLOBILE_PASSWORD;
+const PRODUCT_ID = process.env.LMLOBILE_PRODUCT_ID;
 const ENCRYPT_KEY = 'SMmsEncryptKey';
 const MONGO_URI = process.env.MONGO_URI;
 
