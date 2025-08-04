@@ -1,112 +1,127 @@
 const bcrypt = require('bcryptjs');
-const connectDB = require('./utils/db');
-const { generateToken } = require('./utils/auth');
+const { MongoClient, ObjectId } = require('mongodb');
+
+const uri = process.env.MONGO_URI;
 
 exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders(),
-      body: '',
-    };
-  }
-
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers: corsHeaders(),
-      body: JSON.stringify({ message: 'Method Not Allowed' }),
+      body: JSON.stringify({ message: 'Method not allowed' }),
+    };
+  }
+
+  if (!uri) {
+    console.error("❌ MongoDB URI not set in environment variables.");
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ message: "Server configuration error: missing DB URI" }),
     };
   }
 
   try {
-    const { name, password, email, phone } = JSON.parse(event.body);
+    const { name, email, phone, password, role, referralCode } = JSON.parse(event.body);
 
-    if (!name || !password || (!email && !phone)) {
+    if (!name || !password || !role || (!email && !phone)) {
       return {
         statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Name, password, and either email or phone are required.' }),
+        body: JSON.stringify({
+          message: 'Name, password, role, and either email or phone are required',
+        }),
       };
     }
 
-    // Email or phone format validation
-    const isPhone = phone && /^1[3-9]\d{9}$/.test(phone);
-    const isEmail = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-    if (phone && !isPhone) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Invalid phone number format' }),
-      };
-    }
-    if (email && !isEmail) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Invalid email format' }),
-      };
-    }
+    const client = new MongoClient(uri);
+    await client.connect();
+    const db = client.db('tarot-station');
+    const users = db.collection('users');
 
-    if (password.length < 6) {
+    // Check if user already exists (by email or phone)
+    const query = [];
+    if (email) query.push({ email: email.toLowerCase() });
+    if (phone) query.push({ phone });
+
+    if (query.length === 0) {
+      await client.close();
       return {
         statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Password must be at least 6 characters long' }),
+        body: JSON.stringify({ message: 'Invalid input: missing email and phone' }),
       };
     }
 
-    const db = await connectDB();
-
-    // Check if phone or email already exists
-    const existingUser = await db.collection('users').findOne({
-      $or: [{ email: email || null }, { phone: phone || null }],
-    });
+    const existingUser = await users.findOne({ $or: query });
 
     if (existingUser) {
+      await client.close();
       return {
         statusCode: 409,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'User with this email or phone already exists' }),
+        body: JSON.stringify({ message: 'User with same email or phone already exists' }),
       };
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Hash the password
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create new user
+    let points = 50;
     const newUser = {
-      name,
-      password: hashedPassword,
+      name: name.trim(),
+      passwordHash,
+      role: role.toLowerCase(),
+      points,
+      referredUsers: [],
       createdAt: new Date(),
     };
 
-    if (email) newUser.email = email;
+    if (email) newUser.email = email.toLowerCase();
     if (phone) newUser.phone = phone;
 
-    await db.collection('users').insertOne(newUser);
+    const result = await users.insertOne(newUser);
+    const insertedId = result.insertedId;
 
-    const token = generateToken({ name, email, phone });
+    // Create referral code (last 6 chars of ObjectId)
+    const generatedReferralCode = insertedId.toHexString().slice(-6);
+
+    await users.updateOne(
+      { _id: insertedId },
+      { $set: { referralCode: generatedReferralCode } }
+    );
+
+    // Handle referral if provided
+    if (referralCode) {
+      const referrer = await users.findOne({ referralCode });
+
+      if (referrer) {
+        await users.updateOne(
+          { _id: referrer._id },
+          {
+            $inc: { points: 50 },
+            $push: { referredUsers: insertedId.toHexString() },
+          }
+        );
+      }
+    }
+
+    await client.close();
 
     return {
-      statusCode: 200,
-      headers: corsHeaders(),
-      body: JSON.stringify({ token, user: { name, email, phone } }),
+      statusCode: 201,
+      body: JSON.stringify({
+        message: 'User registered successfully',
+        userId: insertedId.toString(),
+        points,
+        referralCode: generatedReferralCode,
+      }),
     };
   } catch (error) {
+    console.error('❌ Signup Error:', error);
     return {
       statusCode: 500,
-      headers: corsHeaders(),
-      body: JSON.stringify({ message: 'Signup failed', error: error.message }),
+      body: JSON.stringify({ message: 'Internal server error', error: error.message }),
     };
   }
 };
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Content-Type': 'application/json',
-  };
-}
 
 
 // // netlify/functions/signup.js
