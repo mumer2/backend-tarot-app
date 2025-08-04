@@ -32,10 +32,53 @@ exports.handler = async (event) => {
       };
     }
 
+    // Validate name length
+    if (name.trim().length < 2) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({
+          message: 'Name must be at least 2 characters long',
+        }),
+      };
+    }
+
+    // Validate password strength
+    const passwordRegex = /^(?=.*\d).{6,}$/;
+    if (!passwordRegex.test(password)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({
+          message: 'Password must be at least 6 characters and include a number',
+        }),
+      };
+    }
+
+    // Validate email or phone
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRegex = /^[0-9]{6,15}$/;
+
+    if (email && !emailRegex.test(email)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'Invalid email format' }),
+      };
+    }
+
+    if (phone && !phoneRegex.test(phone)) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'Phone number must be 6–15 digits' }),
+      };
+    }
+
     const db = await connectDB();
     const users = db.collection('users');
 
-    // Check if user already exists by email or phone
+    // Check for existing user by email or phone
     const existingUser = await users.findOne({
       $or: [
         email ? { email: email.toLowerCase() } : {},
@@ -55,7 +98,7 @@ exports.handler = async (event) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = {
-      name,
+      name: name.trim(),
       password: hashedPassword,
       createdAt: new Date(),
     };
@@ -76,7 +119,11 @@ exports.handler = async (event) => {
       headers: corsHeaders(),
       body: JSON.stringify({
         token,
-        user: { name, email: email || null, phone: phone || null },
+        user: {
+          name,
+          email: email || null,
+          phone: phone || null,
+        },
       }),
     };
   } catch (error) {
@@ -100,6 +147,7 @@ function corsHeaders() {
     'Content-Type': 'application/json',
   };
 }
+
 
 
 // // netlify/functions/signup.js
