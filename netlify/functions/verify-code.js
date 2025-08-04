@@ -3,8 +3,11 @@ const { MongoClient } = require('mongodb');
 // 🔐 Secure values
 const MONGO_URI = process.env.MONGO_URI;
 
-// 📱 Format phone number same as send-code.js
-const formatPhoneNumber = (phone, countryCode = '92') => {
+// 📱 Only allow Chinese numbers: e.g. 13xxxxxxxxx, 15xxxxxxxxx, ...
+const isChinesePhoneNumber = (phone) => /^1[3-9]\d{9}$/.test(phone);
+
+// 📱 Format phone (remove spaces, +, etc.)
+const formatPhoneNumber = (phone) => {
   let formatted = phone.trim().replace(/\s+/g, '');
 
   if (formatted.startsWith('+')) {
@@ -19,10 +22,6 @@ const formatPhoneNumber = (phone, countryCode = '92') => {
     formatted = formatted.slice(1);
   }
 
-  if (!formatted.startsWith(countryCode)) {
-    formatted = `${countryCode}${formatted}`;
-  }
-
   return formatted;
 };
 
@@ -35,6 +34,7 @@ exports.handler = async (event) => {
 
   try {
     const { phone, code } = JSON.parse(event.body);
+
     if (!phone || !code) {
       return {
         statusCode: 400,
@@ -43,17 +43,29 @@ exports.handler = async (event) => {
     }
 
     const formattedPhone = formatPhoneNumber(phone);
-    console.log('🔍 Verifying for phone:', formattedPhone);
+
+    // 🔐 Ensure phone number is from China
+    if (!isChinesePhoneNumber(formattedPhone)) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          success: false,
+          message: 'Only Chinese phone numbers are supported for OTP verification.',
+        }),
+      };
+    }
+
+    console.log('🔍 Verifying OTP for:', formattedPhone);
 
     mongo = new MongoClient(MONGO_URI);
     await mongo.connect();
 
-    const record = await mongo
+    const otpDoc = await mongo
       .db('tarot-station')
       .collection('otps')
       .findOne({ phone: formattedPhone });
 
-    if (!record) {
+    if (!otpDoc) {
       return {
         statusCode: 400,
         body: JSON.stringify({ success: false, message: 'No OTP found for this number.' }),
@@ -61,10 +73,10 @@ exports.handler = async (event) => {
     }
 
     const now = new Date();
-    const createdAt = new Date(record.createdAt);
+    const createdAt = new Date(otpDoc.createdAt);
     const diffInMinutes = (now - createdAt) / (1000 * 60);
 
-    if (record.code !== code) {
+    if (otpDoc.code !== code) {
       return {
         statusCode: 400,
         body: JSON.stringify({ success: false, message: 'Invalid verification code.' }),
@@ -78,15 +90,20 @@ exports.handler = async (event) => {
       };
     }
 
+    // ✅ Valid OTP
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true, message: 'Phone number verified successfully.' }),
     };
   } catch (err) {
-    console.error('❌ Error verifying code:', err.message);
+    console.error('❌ Error verifying OTP:', err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ success: false, message: 'Internal server error.', error: err.message }),
+      body: JSON.stringify({
+        success: false,
+        message: 'Internal server error.',
+        error: err.message,
+      }),
     };
   } finally {
     if (mongo) await mongo.close();
