@@ -21,10 +21,10 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body);
-    const identifier = body.email || body.phone;
     const password = body.password;
+    const rawInput = body.email || body.phone;
 
-    if (!identifier || !password) {
+    if (!rawInput || !password) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
@@ -32,15 +32,16 @@ exports.handler = async (event) => {
       };
     }
 
+    const input = rawInput.trim();
     const db = await connectDB();
     const users = db.collection('users');
 
-    // 🔍 Determine if input is phone or email
-    let query;
-    if (/^\d{10,15}$/.test(identifier.trim())) {
-      query = { phone: identifier.trim() };
-    } else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.trim())) {
-      query = { email: identifier.trim().toLowerCase() };
+    // Detect whether input is a phone number or an email
+    let query = {};
+    if (/^\d{10,15}$/.test(input)) {
+      query = { phone: input };
+    } else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input)) {
+      query = { email: input.toLowerCase() };
     } else {
       return {
         statusCode: 400,
@@ -51,17 +52,7 @@ exports.handler = async (event) => {
 
     const user = await users.findOne(query);
 
-    if (!user) {
-      return {
-        statusCode: 401,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'User not found' }),
-      };
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password || user.passwordHash);
-
-    if (!isMatch) {
+    if (!user || !(await bcrypt.compare(password, user.password || user.passwordHash))) {
       return {
         statusCode: 401,
         headers: corsHeaders(),
