@@ -1,7 +1,7 @@
 const { MongoClient } = require('mongodb');
 
 // 🔐 Secure values
-const MONGO_URI = process.env.MONGO_DB_URI;
+const MONGO_URI = process.env.MONGO_URI;
 
 // 📱 Format phone number same as send-code.js
 const formatPhoneNumber = (phone, countryCode = '92') => {
@@ -49,7 +49,7 @@ exports.handler = async (event) => {
     await mongo.connect();
 
     const record = await mongo
-      .db('calorieai')
+      .db('tarot-station')
       .collection('otp_verifications')
       .findOne({ phone: formattedPhone });
 

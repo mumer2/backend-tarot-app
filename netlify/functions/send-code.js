@@ -7,7 +7,7 @@ const ACCOUNT_ID = process.env.LMLOBILE_ACCOUNT_ID;
 const PASSWORD = process.env.LMLOBILE_PASSWORD;
 const PRODUCT_ID = process.env.LMLOBILE_PRODUCT_ID;
 const ENCRYPT_KEY = 'SMmsEncryptKey';
-const MONGO_URI = process.env.MONGO_DB_URI;
+const MONGO_URI = process.env.MONGO_URI;
 
 // 🔐 Utility functions
 const md5 = (input) => crypto.createHash('md5').update(input).digest('hex').toUpperCase();
@@ -93,7 +93,7 @@ exports.handler = async (event) => {
     mongo = new MongoClient(MONGO_URI);
     await mongo.connect();
     await mongo
-      .db('calorieai')
+      .db('tarot-station')
       .collection('otp_verifications')
       .updateOne(
         { phone: formattedPhone },
