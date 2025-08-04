@@ -20,25 +20,35 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { email, phone, password } = JSON.parse(event.body);
+    const body = JSON.parse(event.body);
+    const identifier = (body.email || body.phone || '').trim();
+    const password = body.password;
 
-    if (!password || (!email && !phone)) {
+    if (!identifier || !password) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({
-          message: 'Email or phone and password are required',
-        }),
+        body: JSON.stringify({ message: 'Email or phone and password are required' }),
       };
     }
 
     const db = await connectDB();
     const users = db.collection('users');
 
-    // 🧠 Support login via either email or phone
-    const query = email
-      ? { email: email.toLowerCase() }
-      : { phone: phone.replace(/\s+/g, '') };
+    let query;
+    if (/^\d{10,15}$/.test(identifier)) {
+      // If all digits → treat as phone
+      query = { phone: identifier };
+    } else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
+      // If email-like format
+      query = { email: identifier.toLowerCase() };
+    } else {
+      return {
+        statusCode: 400,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'Invalid email or phone format' }),
+      };
+    }
 
     const user = await users.findOne(query);
 
