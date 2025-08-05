@@ -78,6 +78,7 @@ exports.handler = async (event) => {
         success: true,
         token,
         userId,
+        name, // <-- Add this line
         points,
         referralCode: newUser.referralCode,
       }),
