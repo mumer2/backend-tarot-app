@@ -1,6 +1,4 @@
-const bcrypt = require('bcryptjs');
 const connectDB = require('./utils/db');
-const { generateToken } = require('./utils/auth');
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -20,75 +18,48 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { email, phone, password } = JSON.parse(event.body);
+    const { userId, name, profilePic } = JSON.parse(event.body);
 
-    if ((!email && !phone) || !password) {
+    if (!userId || !name) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Email or phone and password are required' }),
+        body: JSON.stringify({ message: 'User ID and name are required.' }),
       };
     }
 
     const db = await connectDB();
     const users = db.collection('users');
 
-    const input = (email || phone).trim();
+    const result = await users.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          name,
+          profilePic: profilePic || null,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
-    let query = {};
-    if (/^\d{10,15}$/.test(input)) {
-      query = { phone: input };
-    } else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input)) {
-      query = { email: input.toLowerCase() };
-    } else {
+    if (result.matchedCount === 0) {
       return {
-        statusCode: 400,
+        statusCode: 404,
         headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Invalid email or phone format' }),
+        body: JSON.stringify({ message: 'User not found' }),
       };
     }
-
-    const user = await users.findOne(query);
-
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return {
-        statusCode: 401,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Invalid credentials' }),
-      };
-    }
-
-    const token = generateToken({
-      id: user._id,
-      email: user.email || '',
-      phone: user.phone || '',
-      name: user.name || '',
-    });
 
     return {
       statusCode: 200,
       headers: corsHeaders(),
-      body: JSON.stringify({
-        success: true,
-        token,
-        user: {
-          _id: user._id,
-          name: user.name || '',
-          email: user.email || '',
-          phone: user.phone || '',
-          profilePic: user.profilePic || '',
-          referralCode: user.referralCode || '',
-          points: user.points || 0,
-          createdAt: user.createdAt || null,
-        },
-      }),
+      body: JSON.stringify({ success: true, message: 'Profile updated' }),
     };
   } catch (err) {
-    console.error('❌ Login error:', err);
     return {
       statusCode: 500,
       headers: corsHeaders(),
-      body: JSON.stringify({ message: 'Login failed', error: err.message }),
+      body: JSON.stringify({ message: 'Update failed', error: err.message }),
     };
   }
 };
