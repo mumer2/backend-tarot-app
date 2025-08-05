@@ -32,7 +32,6 @@ exports.handler = async (event) => {
     }
 
     const db = await connectDB();
-
     const query = email ? { email } : { phone };
     const existingUser = await db.collection('users').findOne(query);
 
@@ -47,21 +46,20 @@ exports.handler = async (event) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = uuidv4();
     const points = 50;
-
-    // Generate referralCode like "umer4511"
     const myReferralCode = generateReferralCode(name);
 
     let referredBy = null;
     let referrerId = null;
 
-    // Check if referralCode is valid
+    // Validate referral code
     if (referralCode) {
       const referrer = await db.collection('users').findOne({ referralCode });
+
       if (referrer) {
         referredBy = referrer.name;
         referrerId = referrer._id;
 
-        // reward referrer
+        // Reward the referrer
         await db.collection('users').updateOne(
           { _id: referrer._id },
           { $inc: { points: 20 } }
@@ -77,13 +75,12 @@ exports.handler = async (event) => {
       password: hashedPassword,
       points,
       referralCode: myReferralCode,
-      referredBy, // referredBy: "Ali Khan"
-      referrerId, // Optional: referrer's userId
+      referredBy,
+      referrerId,
       createdAt: new Date(),
     };
 
     await db.collection('users').insertOne(newUser);
-
     const token = generateToken({ userId, email, phone });
 
     return {
@@ -109,7 +106,10 @@ exports.handler = async (event) => {
 };
 
 function generateReferralCode(name) {
-  return name.toLowerCase().replace(/\s+/g, '').substring(0, 4) + Math.floor(1000 + Math.random() * 9000);
+  return (
+    name.toLowerCase().replace(/\s+/g, '').substring(0, 4) +
+    Math.floor(1000 + Math.random() * 9000)
+  );
 }
 
 function corsHeaders() {
