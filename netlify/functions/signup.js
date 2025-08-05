@@ -51,7 +51,7 @@ exports.handler = async (event) => {
     let referredBy = null;
     let referrerId = null;
 
-    // Validate referral code
+    // Handle referral reward logic
     if (referralCode) {
       const referrer = await db.collection('users').findOne({ referralCode });
 
@@ -59,7 +59,7 @@ exports.handler = async (event) => {
         referredBy = referrer.name;
         referrerId = referrer._id;
 
-        // Reward the referrer
+        // Add referral bonus to referrer
         await db.collection('users').updateOne(
           { _id: referrer._id },
           { $inc: { points: 20 } }
@@ -67,6 +67,7 @@ exports.handler = async (event) => {
       }
     }
 
+    // Create new user
     const newUser = {
       _id: userId,
       name,
@@ -74,13 +75,14 @@ exports.handler = async (event) => {
       phone: phone || null,
       password: hashedPassword,
       points,
-      referralCode: myReferralCode,
-      referredBy,
-      referrerId,
+      referralCode: myReferralCode, // ✅ Generated for every user
+      referredBy,                   // ✅ Name of referrer, if any
+      referrerId,                   // Optional internal ID
       createdAt: new Date(),
     };
 
     await db.collection('users').insertOne(newUser);
+
     const token = generateToken({ userId, email, phone });
 
     return {
@@ -93,10 +95,11 @@ exports.handler = async (event) => {
         name,
         points,
         referralCode: myReferralCode,
-        referredBy,
+        referredBy: referredBy || null,
       }),
     };
   } catch (error) {
+    console.error('Signup error:', error);
     return {
       statusCode: 500,
       headers: corsHeaders(),
