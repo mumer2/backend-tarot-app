@@ -62,7 +62,7 @@ exports.handler = async (event) => {
         // Add referral bonus to referrer
         await db.collection('users').updateOne(
           { _id: referrer._id },
-          { $inc: { points: 20 } }
+          { $inc: { points: 50 } }
         );
       }
     }
