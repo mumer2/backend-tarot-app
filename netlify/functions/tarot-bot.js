@@ -12,15 +12,19 @@ exports.handler = async function (event) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { question, lang = 'en' } = body;
+  const { question, lang = 'en', system = '' } = body;
+
   if (!question) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Question is required' }) };
   }
 
-  const userContent = question;
-  const systemMessage = lang === 'zh'
-    ? '你是一个神秘的塔罗占卜师，请用中文回答以下问题：'
-    : 'You are a mystical tarot expert. Answer the following in English: ';
+  // 🌐 Define language enforcement message
+  const enforceLanguage = lang === 'zh'
+    ? '请始终用中文回答用户的问题，无论用户使用哪种语言提问。'
+    : 'Always answer only in English, even if the user asks in another language.';
+
+  // ✨ Combine custom system prompt + language enforcement
+  const finalSystemMessage = `${system || 'You are a mystical tarot expert.'} ${enforceLanguage}`;
 
   try {
     const res = await axios.post(
@@ -28,8 +32,8 @@ exports.handler = async function (event) {
       {
         model: 'llama3-8b-8192',
         messages: [
-          { role: 'system', content: systemMessage },
-          { role: 'user', content: userContent }
+          { role: 'system', content: finalSystemMessage },
+          { role: 'user', content: question }
         ],
         temperature: 0.7,
       },
@@ -41,16 +45,18 @@ exports.handler = async function (event) {
       }
     );
 
-    const answer = res.data.choices?.[0]?.message?.content || '';
-    return { statusCode: 200, body: JSON.stringify({ answer: answer.trim() }) };
+    const reply = res.data.choices?.[0]?.message?.content?.trim() || '';
+    return { statusCode: 200, body: JSON.stringify({ reply }) };
+
   } catch (error) {
-    console.error('Groq API error:', error.response?.data || error.message);
+    console.error('❌ Groq API error:', error.response?.data || error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Groq request failed' }),
+      body: JSON.stringify({ error: 'Groq request failed', details: error.message }),
     };
   }
 };
+
 
 
 
