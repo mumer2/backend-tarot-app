@@ -1,59 +1,75 @@
-const axios = require('axios');
+const axios = require("axios");
 
 exports.handler = async function (event) {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Only POST allowed' }) };
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      body: JSON.stringify({ error: "Only POST requests allowed" }),
+    };
   }
 
   let body;
   try {
     body = JSON.parse(event.body);
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: "Invalid JSON in request body" }),
+    };
   }
 
   const { prompt, lang = "en" } = body;
-  if (!prompt) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing prompt' }) };
+
+  if (!prompt || typeof prompt !== "string") {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: "Missing or invalid prompt" }),
+    };
   }
 
-  const systemMsg = lang === "zh"
-    ? "你是一个神秘的塔罗占卜师，请用中文回答以下问题："
-    : "You are a mystical tarot expert. Answer in English only.";
+  // 🔮 Language-based system prompt
+  const systemPrompt =
+    lang === "zh"
+      ? "你是一个神秘的塔罗占卜师，请始终用中文回答。"
+      : "You are a mystical tarot reader. Always reply in English.";
 
   try {
     const res = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
+      "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: 'llama3-8b-8192',
+        model: "llama3-8b-8192",
         messages: [
-          { role: 'system', content: systemMsg },
-          { role: 'user', content: prompt }
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
         ],
         temperature: 0.7,
       },
       {
         headers: {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
       }
     );
 
-    const answer = res.data.choices?.[0]?.message?.content?.trim() || '';
+    const answer = res.data?.choices?.[0]?.message?.content?.trim() || "";
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ answer })  // ✅ Important to match this with frontend
+      body: JSON.stringify({ answer }), // ✅ Frontend expects 'answer'
     };
   } catch (error) {
-    console.error('❌ Groq API error:', error.response?.data || error.message);
+    console.error("❌ Tarot API error:", error.response?.data || error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Groq request failed', details: error.message }),
+      body: JSON.stringify({
+        error: "Groq request failed",
+        details: error.response?.data || error.message,
+      }),
     };
   }
 };
+
 
 
 
