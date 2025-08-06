@@ -36,11 +36,13 @@ exports.handler = async function (event) {
     };
   }
 
-  // 🧙‍♂️ Force language-specific prompt
-  const systemPrompt = system || {
-    en: "You are a mystical tarot expert. Respond in English only. Always use poetic, magical, and short fortune-teller style responses.",
-    zh: "你是一位神秘的塔罗专家。只能用中文回答。请使用诗意、神秘、简短的占卜师语气回复。",
-  }[language] || "You are a mystical tarot expert.";
+  // 🔁 Force reply in selected language
+  let systemPrompt = system || "You are a tarot bot.";
+  if (language === "zh") {
+    systemPrompt += " 请你始终用中文回答用户的问题。";
+  } else if (language === "en") {
+    systemPrompt += " Always reply only in English.";
+  }
 
   try {
     const response = await axios.post(
@@ -78,6 +80,7 @@ exports.handler = async function (event) {
     };
   }
 };
+
 
 
 
