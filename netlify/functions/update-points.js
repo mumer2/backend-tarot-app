@@ -1,14 +1,19 @@
 const connectDB = require('./utils/db');
+const { ObjectId } = require('mongodb');
+
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json',
+  };
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: corsHeaders(),
-      body: '',
-    };
+    return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
-
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -31,7 +36,9 @@ exports.handler = async (event) => {
     const db = await connectDB();
     const users = db.collection('users');
 
-    const user = await users.findOne({ _id: userId });
+    const _id = ObjectId.isValid(userId) ? new ObjectId(userId) : userId;
+
+    const user = await users.findOne({ _id });
 
     if (!user) {
       return {
@@ -52,7 +59,7 @@ exports.handler = async (event) => {
     }
 
     const updatedResult = await users.findOneAndUpdate(
-      { _id: userId },
+      { _id },
       { $inc: { points: -coinsToDeduct } },
       { returnDocument: 'after' }
     );
@@ -76,12 +83,3 @@ exports.handler = async (event) => {
     };
   }
 };
-
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Content-Type': 'application/json',
-  };
-}
