@@ -12,10 +12,18 @@ exports.handler = async function (event) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-const { question, lang = "en" } = body;
-const systemMsg = lang === "zh"
-  ? "你是一个神秘的塔罗占卜师，请用中文回答。"
-  : "You are a mystical tarot expert. Answer in English only.";
+  const { question, language = "en", system = "" } = body;
+
+  if (!question) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Question is required" }) };
+  }
+
+  // Use system message from frontend, fallback to default
+  const finalSystemMessage = system || (
+    language === "zh"
+      ? "你是一个神秘的塔罗占卜师，请用中文回答。"
+      : "You are a mystical tarot expert. Answer in English only."
+  );
 
   try {
     const res = await axios.post(
