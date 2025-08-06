@@ -27,21 +27,15 @@ exports.handler = async function (event) {
     };
   }
 
-  const { prompt, system, language = "en" } = body;
+  const { prompt, system = "", language = "en" } = body;
 
-  if (!prompt) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Missing prompt" }),
-    };
-  }
+  // ✅ ENFORCE chatbot reply language explicitly
+  let finalSystemPrompt = system;
 
-  // 🔁 Force reply in selected language
-  let systemPrompt = system || "You are a tarot bot.";
   if (language === "zh") {
-    systemPrompt += " 请你始终用中文回答用户的问题。";
-  } else if (language === "en") {
-    systemPrompt += " Always reply only in English.";
+    finalSystemPrompt += " 请始终用中文回答用户的问题，无论用户使用哪种语言提问。";
+  } else {
+    finalSystemPrompt += " Always answer only in English, even if user types in another language.";
   }
 
   try {
@@ -50,7 +44,7 @@ exports.handler = async function (event) {
       {
         model: "llama3-8b-8192",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: finalSystemPrompt },
           { role: "user", content: prompt },
         ],
         temperature: 0.8,
