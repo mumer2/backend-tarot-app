@@ -39,11 +39,11 @@ exports.handler = async (event) => {
       { _id: userId },
       {
         $set: { lastCheckIn: new Date() },
-        $inc: { points: 10 },
+        $inc: { points: 5 },
         $push: {
           checkInHistory: {
             date: new Date(),
-            coins: 10,
+            coins: 5,
           },
         },
       },
