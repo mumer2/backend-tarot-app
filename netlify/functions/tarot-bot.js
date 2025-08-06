@@ -29,13 +29,20 @@ exports.handler = async function (event) {
 
   const { prompt, system = "", language = "en" } = body;
 
-  // ✅ ENFORCE chatbot reply language explicitly
+  if (!prompt || typeof prompt !== "string") {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: "Missing or invalid prompt" }),
+    };
+  }
+
+  // ✅ Force chatbot to reply in selected language
   let finalSystemPrompt = system;
 
   if (language === "zh") {
     finalSystemPrompt += " 请始终用中文回答用户的问题，无论用户使用哪种语言提问。";
   } else {
-    finalSystemPrompt += " Always answer only in English, even if user types in another language.";
+    finalSystemPrompt += " Always answer only in English, even if the user types in another language.";
   }
 
   try {
@@ -57,11 +64,13 @@ exports.handler = async function (event) {
       }
     );
 
-    const answer = response.data.choices?.[0]?.message?.content;
+    const reply = response.data.choices?.[0]?.message?.content?.trim();
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ reply: answer || "✨ The spirits are quiet..." }),
+      body: JSON.stringify({
+        reply: reply || "✨ The spirits are quiet...",
+      }),
     };
   } catch (error) {
     console.error("❌ Groq API error:", error.response?.data || error.message);
@@ -74,6 +83,7 @@ exports.handler = async function (event) {
     };
   }
 };
+
 
 
 
