@@ -1,68 +1,56 @@
-const axios = require("axios");
+const axios = require('axios');
 
-exports.handler = async (event) => {
-  const apiKey = process.env.GROQ_API_KEY;
-
-  if (!apiKey) {
-    return { statusCode: 500, body: JSON.stringify({ error: "Missing GROQ_API_KEY" }) };
-  }
-
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: JSON.stringify({ error: "Only POST method allowed" }) };
+exports.handler = async function (event) {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Only POST allowed' }) };
   }
 
   let body;
   try {
     body = JSON.parse(event.body);
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON" }) };
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { question, lang = "en" } = body;
+  const { question, lang = 'en' } = body;
   if (!question) {
-    return { statusCode: 400, body: JSON.stringify({ error: "Missing question" }) };
+    return { statusCode: 400, body: JSON.stringify({ error: 'Question is required' }) };
   }
 
-  const localizedPrompt =
-    lang === "zh"
-      ? `你是一个神秘的塔罗大师，请用中文简洁回答以下问题：${question}`
-      : `You are a mystical tarot expert. Answer concisely in English: ${question}`;
+  const userContent = question;
+  const systemMessage = lang === 'zh'
+    ? '你是一个神秘的塔罗占卜师，请用中文回答以下问题：'
+    : 'You are a mystical tarot expert. Answer the following in English: ';
 
   try {
-    const response = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+    const res = await axios.post(
+      'https://api.groq.com/openai/v1/chat/completions',
       {
-        model: "llama3-8b-8192",
-        messages: [{ role: "user", content: localizedPrompt }],
+        model: 'llama3-8b-8192',
+        messages: [
+          { role: 'system', content: systemMessage },
+          { role: 'user', content: userContent }
+        ],
         temperature: 0.7,
       },
       {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          'Content-Type': 'application/json',
         },
       }
     );
 
-    const answer = response.data.choices?.[0]?.message?.content || "✨ The spirits are silent...";
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ answer }),
-    };
-  } catch (err) {
-    console.error("❌ API error:", err.response?.data || err.message);
+    const answer = res.data.choices?.[0]?.message?.content || '';
+    return { statusCode: 200, body: JSON.stringify({ answer: answer.trim() }) };
+  } catch (error) {
+    console.error('Groq API error:', error.response?.data || error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Request failed",
-        details: err.response?.data || err.message,
-      }),
+      body: JSON.stringify({ error: 'Groq request failed' }),
     };
   }
 };
-
-
 
 
 
