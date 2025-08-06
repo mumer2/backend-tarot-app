@@ -12,19 +12,10 @@ exports.handler = async function (event) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { question, lang = 'en', system = '' } = body;
-
-  if (!question) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Question is required' }) };
-  }
-
-  // 🌐 Define language enforcement message
-  const enforceLanguage = lang === 'zh'
-    ? '请始终用中文回答用户的问题，无论用户使用哪种语言提问。'
-    : 'Always answer only in English, even if the user asks in another language.';
-
-  // ✨ Combine custom system prompt + language enforcement
-  const finalSystemMessage = `${system || 'You are a mystical tarot expert.'} ${enforceLanguage}`;
+const { question, lang = "en" } = body;
+const systemMsg = lang === "zh"
+  ? "你是一个神秘的塔罗占卜师，请用中文回答。"
+  : "You are a mystical tarot expert. Answer in English only.";
 
   try {
     const res = await axios.post(
