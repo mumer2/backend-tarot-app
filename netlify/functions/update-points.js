@@ -1,5 +1,4 @@
 const connectDB = require('./utils/db');
-const { ObjectId } = require('mongodb');
 
 function corsHeaders() {
   return {
@@ -14,6 +13,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
   }
+
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -36,9 +36,8 @@ exports.handler = async (event) => {
     const db = await connectDB();
     const users = db.collection('users');
 
-    const _id = ObjectId.isValid(userId) ? new ObjectId(userId) : userId;
-
-    const user = await users.findOne({ _id });
+    // ✅ Assume UUID string _id (not ObjectId)
+    const user = await users.findOne({ _id: userId });
 
     if (!user) {
       return {
@@ -59,12 +58,20 @@ exports.handler = async (event) => {
     }
 
     const updatedResult = await users.findOneAndUpdate(
-      { _id },
+      { _id: userId },
       { $inc: { points: -coinsToDeduct } },
-      { returnDocument: 'after' }
+      { returnDocument: 'after' } // ✅ Important: return the updated document
     );
 
-    const updatedUser = updatedResult.value;
+    const updatedUser = updatedResult?.value;
+
+    if (!updatedUser) {
+      return {
+        statusCode: 500,
+        headers: corsHeaders(),
+        body: JSON.stringify({ message: 'Update failed' }),
+      };
+    }
 
     return {
       statusCode: 200,
