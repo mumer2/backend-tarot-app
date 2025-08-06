@@ -1,15 +1,6 @@
 const { MongoClient } = require('mongodb');
 const uri = process.env.MONGO_URI;
 
-function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Content-Type': 'application/json',
-  };
-}
-
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders(), body: '' };
@@ -24,13 +15,15 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { userId, points } = JSON.parse(event.body);
+    const body = JSON.parse(event.body);
+    const userId = body.userId;
+    const points = body.points;
 
     if (!userId || typeof points !== 'number') {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ message: 'userId and numeric points are required' }),
+        body: JSON.stringify({ message: 'Missing userId or points' }),
       };
     }
 
@@ -59,15 +52,21 @@ exports.handler = async (event) => {
       headers: corsHeaders(),
       body: JSON.stringify({ message: 'Points updated successfully' }),
     };
-  } catch (error) {
-    console.error('❌ update-points error:', error);
+  } catch (err) {
+    console.error('❌ update-points error:', err);
     return {
       statusCode: 500,
       headers: corsHeaders(),
-      body: JSON.stringify({
-        message: 'Server error',
-        error: error.message,
-      }),
+      body: JSON.stringify({ message: 'Server error', error: err.message }),
     };
   }
 };
+
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json',
+  };
+}
