@@ -1,51 +1,57 @@
-const axios = require("axios");
+const axios = require('axios');
 
 exports.handler = async function (event) {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: JSON.stringify({ error: "Only POST allowed" }) };
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Only POST allowed' }) };
   }
 
   let body;
   try {
     body = JSON.parse(event.body);
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON" }) };
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
-  const { question, lang = "en" } = body;
-
-  if (!question) {
-    return { statusCode: 400, body: JSON.stringify({ error: "Question is required" }) };
+  const { prompt, lang = "en" } = body;
+  if (!prompt) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Missing prompt' }) };
   }
 
-  // Build system prompt based on language
-  const systemPrompt = lang === "zh"
-    ? "你是一位神秘的塔罗占卜师，请用中文简洁回答以下问题："
-    : "You are a mystical tarot expert. Please answer in English only:";
+  const systemMsg = lang === "zh"
+    ? "你是一个神秘的塔罗占卜师，请用中文回答以下问题："
+    : "You are a mystical tarot expert. Answer in English only.";
 
   try {
-    const resp = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+    const res = await axios.post(
+      'https://api.groq.com/openai/v1/chat/completions',
       {
-        model: "llama3-8b-8192",
+        model: 'llama3-8b-8192',
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: question },
+          { role: 'system', content: systemMsg },
+          { role: 'user', content: prompt }
         ],
         temperature: 0.7,
       },
       {
         headers: {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
       }
     );
-    const answer = resp.data.choices?.[0]?.message?.content?.trim() || "";
-    return { statusCode: 200, body: JSON.stringify({ answer }) };
-  } catch (err) {
-    console.error("Groq error:", err.response?.data || err.message);
-    return { statusCode: 500, body: JSON.stringify({ error: "API error" }) };
+
+    const answer = res.data.choices?.[0]?.message?.content?.trim() || '';
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ answer })  // ✅ Important to match this with frontend
+    };
+  } catch (error) {
+    console.error('❌ Groq API error:', error.response?.data || error.message);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Groq request failed', details: error.message }),
+    };
   }
 };
 
