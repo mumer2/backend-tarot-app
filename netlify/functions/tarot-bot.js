@@ -1,53 +1,40 @@
 const axios = require("axios");
 
-exports.handler = async function (event) {
+exports.handler = async (event) => {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Missing GROQ_API_KEY" }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: "Missing GROQ_API_KEY" }) };
   }
 
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ error: "Only POST method allowed" }),
-    };
+    return { statusCode: 405, body: JSON.stringify({ error: "Only POST method allowed" }) };
   }
 
   let body;
   try {
     body = JSON.parse(event.body);
   } catch {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Invalid JSON" }),
-    };
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON" }) };
   }
 
-  const { prompt, system = "", lang = "en" } = body;
-
-  // 🧠 Enforce language in system prompt
-  let finalSystemPrompt = system;
-
-  if (lang === "zh") {
-    finalSystemPrompt += " 请始终用中文回答用户的问题，无论用户使用哪种语言提问。";
-  } else {
-    finalSystemPrompt += " Always answer only in English, even if the user types in another language.";
+  const { question, lang = "en" } = body;
+  if (!question) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Missing question" }) };
   }
+
+  const localizedPrompt =
+    lang === "zh"
+      ? `你是一个神秘的塔罗大师，请用中文简洁回答以下问题：${question}`
+      : `You are a mystical tarot expert. Answer concisely in English: ${question}`;
 
   try {
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama3-8b-8192",
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.8,
+        messages: [{ role: "user", content: localizedPrompt }],
+        temperature: 0.7,
       },
       {
         headers: {
@@ -57,19 +44,19 @@ exports.handler = async function (event) {
       }
     );
 
-    const answer = response.data.choices?.[0]?.message?.content;
+    const answer = response.data.choices?.[0]?.message?.content || "✨ The spirits are silent...";
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ reply: answer || "✨ The spirits are quiet..." }),
+      body: JSON.stringify({ answer }),
     };
-  } catch (error) {
-    console.error("❌ Groq API error:", error.response?.data || error.message);
+  } catch (err) {
+    console.error("❌ API error:", err.response?.data || err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({
-        error: "Groq request failed",
-        details: error.response?.data || error.message,
+        error: "Request failed",
+        details: err.response?.data || err.message,
       }),
     };
   }
