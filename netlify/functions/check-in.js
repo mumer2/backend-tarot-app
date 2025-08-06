@@ -24,7 +24,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         body: JSON.stringify({
-          alreadyCheckedIn: true,
+          alreadyCheckedIn: false,
           streak: user.checkInStreak || 1,
           history: user.checkInHistory || [],
         }),
