@@ -1,4 +1,5 @@
-const connectDB = require('./utils/db');
+const { MongoClient } = require('mongodb');
+const uri = process.env.MONGO_URI;
 
 function corsHeaders() {
   return {
@@ -18,75 +19,55 @@ exports.handler = async (event) => {
     return {
       statusCode: 405,
       headers: corsHeaders(),
-      body: JSON.stringify({ message: 'Method Not Allowed' }),
+      body: JSON.stringify({ message: 'Method not allowed' }),
     };
   }
 
   try {
-    const { userId, coinsToDeduct } = JSON.parse(event.body);
+    const { userId, points } = JSON.parse(event.body);
 
-    if (!userId || !coinsToDeduct || coinsToDeduct <= 0) {
+    if (!userId || typeof points !== 'number') {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Invalid request' }),
+        body: JSON.stringify({ message: 'userId and numeric points are required' }),
       };
     }
 
-    const db = await connectDB();
+    const client = new MongoClient(uri);
+    await client.connect();
+    const db = client.db('tarot-station');
     const users = db.collection('users');
 
-    // ✅ Assume UUID string _id (not ObjectId)
-    const user = await users.findOne({ _id: userId });
+    const result = await users.updateOne(
+      { _id: userId },
+      { $set: { points } }
+    );
 
-    if (!user) {
+    await client.close();
+
+    if (result.modifiedCount === 0) {
       return {
         statusCode: 404,
         headers: corsHeaders(),
-        body: JSON.stringify({ message: 'User not found' }),
-      };
-    }
-
-    const currentPoints = user.points || 0;
-
-    if (currentPoints < coinsToDeduct) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Not enough coins' }),
-      };
-    }
-
-    const updatedResult = await users.findOneAndUpdate(
-      { _id: userId },
-      { $inc: { points: -coinsToDeduct } },
-      { returnDocument: 'after' } // ✅ Important: return the updated document
-    );
-
-    const updatedUser = updatedResult?.value;
-
-    if (!updatedUser) {
-      return {
-        statusCode: 500,
-        headers: corsHeaders(),
-        body: JSON.stringify({ message: 'Update failed' }),
+        body: JSON.stringify({ message: 'User not found or points not updated' }),
       };
     }
 
     return {
       statusCode: 200,
       headers: corsHeaders(),
-      body: JSON.stringify({
-        success: true,
-        updatedPoints: updatedUser.points,
-      }),
+      body: JSON.stringify({ message: 'Points updated successfully' }),
     };
-  } catch (err) {
-    console.error('❌ update-points error:', err);
+  } catch (error) {
+    console.error('❌ update-points error:', error);
     return {
       statusCode: 500,
       headers: corsHeaders(),
-      body: JSON.stringify({ message: 'Server error', error: err.message }),
+      body: JSON.stringify({
+        message: 'Server error',
+        error: error.message,
+      }),
     };
   }
 };
