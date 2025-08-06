@@ -4,7 +4,6 @@ exports.handler = async function (event) {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    console.error("❌ Missing GROQ_API_KEY");
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Missing GROQ_API_KEY" }),
@@ -28,7 +27,7 @@ exports.handler = async function (event) {
     };
   }
 
-  const { prompt, language = "en", system } = body;
+  const { prompt, system, language = "en" } = body;
 
   if (!prompt) {
     return {
@@ -37,10 +36,10 @@ exports.handler = async function (event) {
     };
   }
 
-  // Define system message per language
+  // 🧙‍♂️ Force language-specific prompt
   const systemPrompt = system || {
-    en: "You are a mystical tarot expert. Answer in English with poetic, magical, and short responses like a fortune teller.",
-    zh: "你是一位神秘的塔罗牌占卜师。用中文回复，语气充满诗意与神秘，简短而富有魔力。",
+    en: "You are a mystical tarot expert. Respond in English only. Always use poetic, magical, and short fortune-teller style responses.",
+    zh: "你是一位神秘的塔罗专家。只能用中文回答。请使用诗意、神秘、简短的占卜师语气回复。",
   }[language] || "You are a mystical tarot expert.";
 
   try {
