@@ -1,69 +1,78 @@
-// File: netlify/functions/check-in.js
 const { MongoClient } = require('mongodb');
 const uri = process.env.MONGO_URI;
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+  const { userId } = JSON.parse(event.body || '{}');
+
+  if (!userId) {
+    return { statusCode: 400, body: JSON.stringify({ message: 'Missing userId' }) };
   }
 
   try {
-    const { userId } = JSON.parse(event.body);
-    if (!userId) {
-      return { statusCode: 400, body: JSON.stringify({ message: 'User ID missing' }) };
-    }
-
     const client = new MongoClient(uri);
     await client.connect();
     const db = client.db('tarot-station');
     const users = db.collection('users');
 
     const user = await users.findOne({ _id: userId });
-    if (!user) {
-      return { statusCode: 404, body: JSON.stringify({ message: 'User not found' }) };
-    }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const lastCheckIn = user.lastCheckIn ? new Date(user.lastCheckIn) : null;
+    const today = new Date().toDateString(); // reset time
+    const lastDate = user.lastCheckIn ? new Date(user.lastCheckIn).toDateString() : null;
 
-    if (lastCheckIn && lastCheckIn >= today) {
+    if (lastDate === today) {
       await client.close();
       return {
         statusCode: 200,
-        body: JSON.stringify({ alreadyCheckedIn: true, coins: user.points }),
+        body: JSON.stringify({
+          alreadyCheckedIn: true,
+          streak: user.checkInStreak || 1,
+          history: user.checkInHistory || [],
+        }),
       };
     }
 
-    const updated = await users.findOneAndUpdate(
+    // Check if missed a day
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const missedDay = user.lastCheckIn &&
+      new Date(user.lastCheckIn).toDateString() !== yesterday.toDateString();
+
+    const newStreak = missedDay ? 1 : (user.checkInStreak || 0) + 1;
+    const cappedStreak = newStreak > 7 ? 1 : newStreak;
+    const todayReward = cappedStreak * 5;
+
+    const updatedPoints = (user.points || 0) + todayReward;
+
+    const newHistory = [
+      ...(user.checkInHistory || []),
+      { date: today, coins: todayReward },
+    ];
+
+    await users.updateOne(
       { _id: userId },
       {
-        $set: { lastCheckIn: new Date() },
-        $inc: { points: 5 },
-        $push: {
-          checkInHistory: {
-            date: new Date(),
-            coins: 5,
-          },
+        $set: {
+          points: updatedPoints,
+          checkInStreak: cappedStreak,
+          lastCheckIn: new Date(),
+          checkInHistory: newHistory,
         },
-      },
-      { returnDocument: 'after' }
+      }
     );
 
     await client.close();
+
     return {
       statusCode: 200,
       body: JSON.stringify({
-        success: true,
-        newPoints: updated.value.points,
-        history: updated.value.checkInHistory,
+        alreadyCheckedIn: false,
+        todayReward,
+        newPoints: updatedPoints,
+        streak: cappedStreak,
+        history: newHistory,
       }),
     };
   } catch (err) {
-    console.error('❌ Check-in error:', err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: 'Server error', error: err.message }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ message: 'Server error', error: err.message }) };
   }
 };
