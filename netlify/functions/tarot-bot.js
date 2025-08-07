@@ -37,10 +37,11 @@ exports.handler = async function (event) {
   }
 
   // Define the system prompt based on the provided 'system' parameter or use a default.
-  // This allows the front-end to control the bot's persona.
+  // This allows the frontend to control the bot's persona.
   const finalSystemPrompt = system || "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.";
 
   // Define a mapping of system prompts for different languages if not provided by the client.
+  // This is the key part for multilingual support.
   const languagePrompts = {
     "en": "Respond in English.",
     "zh": "请用中文回复。", // Respond in Chinese.
