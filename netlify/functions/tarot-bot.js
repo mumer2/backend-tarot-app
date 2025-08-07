@@ -28,7 +28,7 @@ exports.handler = async function (event) {
     };
   }
 
-  const { question, lang } = body;
+  const { question, lang, system } = body;
 
   if (!question) {
     return {
@@ -37,17 +37,27 @@ exports.handler = async function (event) {
     };
   }
 
+  // 🔄 Localize the prompt if needed
   const localizedPrompt =
     lang === "zh"
       ? `你是一个神秘的塔罗占卜师，请用中文回答以下问题：${question}`
       : `You are a mystical tarot expert. Please answer in English only: ${question}`;
+
+  // 🧠 Prepare the full message sequence for Groq API
+  const messages = [];
+
+  if (system) {
+    messages.push({ role: "system", content: system });
+  }
+
+  messages.push({ role: "user", content: localizedPrompt });
 
   try {
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama3-8b-8192",
-        messages: [{ role: "user", content: localizedPrompt }],
+        messages,
         temperature: 0.7,
       },
       {
