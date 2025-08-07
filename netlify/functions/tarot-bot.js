@@ -28,7 +28,7 @@ exports.handler = async function (event) {
     };
   }
 
-  const { prompt } = body;
+  const { prompt, system, language } = body;
   if (!prompt) {
     return {
       statusCode: 400,
@@ -36,15 +36,30 @@ exports.handler = async function (event) {
     };
   }
 
+  // Define the system prompt based on the provided 'system' parameter or use a default.
+  // This allows the front-end to control the bot's persona.
+  const finalSystemPrompt = system || "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.";
+
+  // Define a mapping of system prompts for different languages if not provided by the client.
+  const languagePrompts = {
+    "en": "Respond in English.",
+    "zh": "请用中文回复。", // Respond in Chinese.
+    // Add other languages here as needed
+  };
+
+  // Construct the full system message, combining the persona and the language instruction.
+  const languageInstruction = languagePrompts[language] || languagePrompts["en"];
+  const fullSystemContent = `${finalSystemPrompt} ${languageInstruction}`;
+
   try {
     const response = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions", // Ensure this URL is correct
+      "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama3-8b-8192",
         messages: [
           {
             role: "system",
-            content: "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
+            content: fullSystemContent,
           },
           {
             role: "user",
@@ -78,7 +93,6 @@ exports.handler = async function (event) {
     };
   }
 };
-
 
 // const axios = require("axios");
 
