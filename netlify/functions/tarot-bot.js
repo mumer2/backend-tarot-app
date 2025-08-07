@@ -1,88 +1,46 @@
 const axios = require("axios");
 
 exports.handler = async function (event) {
-  const apiKey = process.env.GROQ_API_KEY;
-
-  if (!apiKey) {
-    console.error("❌ GROQ_API_KEY is missing in environment variables.");
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Missing GROQ_API_KEY in environment" }),
-    };
-  }
+  console.log("📥 event.body:", event.body);
 
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ error: "Only POST allowed" }),
-    };
+    return { statusCode: 405, body: JSON.stringify({ error: "Only POST allowed" }) };
   }
 
   let body;
   try {
     body = JSON.parse(event.body);
   } catch {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Invalid JSON" }),
-    };
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON" }) };
   }
 
-  const { question, lang, system } = body;
+  const { question, system, lang } = body;
+  console.log("Parsed:", { question, system, lang });
 
   if (!question) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Question is required" }),
-    };
+    return { statusCode: 400, body: JSON.stringify({ error: "Question is required" }) };
   }
 
-  // 🔄 Localize the prompt if needed
-  const localizedPrompt =
-    lang === "zh"
-      ? `你是一个神秘的塔罗占卜师，请用中文回答以下问题：${question}`
-      : `You are a mystical tarot expert. Please answer in English only: ${question}`;
+  const localizedPrompt = lang === "zh"
+    ? `你是一个神秘的塔罗占卜师，请用中文回答以下问题：${question}`
+    : `You are a mystical tarot expert. Please answer in English only: ${question}`;
 
-  // 🧠 Prepare the full message sequence for Groq API
   const messages = [];
-
-  if (system) {
-    messages.push({ role: "system", content: system });
-  }
-
+  if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: localizedPrompt });
 
   try {
-    const response = await axios.post(
+    const resp = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
-      {
-        model: "llama3-8b-8192",
-        messages,
-        temperature: 0.7,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
+      { model: "llama3-8b-8192", messages, temperature: 0.7 },
+      { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" } }
     );
 
-    const answer = response.data.choices?.[0]?.message?.content?.trim() || "";
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ answer }),
-    };
-  } catch (error) {
-    console.error("❌ Groq API error:", error.response?.data || error.message);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: "Groq request failed",
-        details: error.response?.data || error.message,
-      }),
-    };
+    const answer = resp.data.choices?.[0]?.message?.content?.trim() || "";
+    return { statusCode: 200, body: JSON.stringify({ answer }) };
+  } catch (err) {
+    console.error("❌ Groq error:", err.response?.data || err.message);
+    return { statusCode: 500, body: JSON.stringify({ error: "Groq request failed", details: err.response?.data || err.message }) };
   }
 };
 
