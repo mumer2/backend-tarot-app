@@ -1,111 +1,58 @@
-const axios = require("axios");
+import { Groq } from "groq-sdk";
 
-exports.handler = async function (event) {
-  const apiKey = process.env.GROQ_API_KEY;
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
-  if (!apiKey) {
-    console.error("❌ Missing GROQ_API_KEY");
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Missing GROQ_API_KEY" }),
-    };
-  }
-
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ error: "Only POST method allowed" }),
-    };
-  }
-
-  let body;
+export const handler = async (event) => {
   try {
-    body = JSON.parse(event.body);
-  } catch {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Invalid JSON" }),
-    };
-  }
+    const body = JSON.parse(event.body || "{}");
 
-  const { prompt, system, lang = "en" } = body;
+    const { prompt, system, lang = "en" } = body;
 
-  if (!prompt) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Missing prompt" }),
-    };
-  }
+    if (!prompt) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Missing prompt" }),
+      };
+    }
 
-  try {
-    // 🧠 Step 1: Get answer from Groq (LLaMA)
-    const response = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+    // Language-specific system prompt
+    const defaultSystem = lang === "zh"
+      ? "你是一位神秘的塔罗牌占卜师，用中文回答问题。风格要温柔、浪漫，带点神秘感，回复要简短但富有诗意。"
+      : "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.";
+
+    const systemMessage = system || defaultSystem;
+
+    const messages = [
       {
-        model: "llama3-8b-8192",
-        messages: [
-          {
-            role: "system",
-            content: system || "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.8,
+        role: "system",
+        content: systemMessage,
       },
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+        role: "user",
+        content: prompt,
+      },
+    ];
 
-    let reply = response.data.choices?.[0]?.message?.content || "✨ The spirits are quiet...";
+    const completion = await groq.chat.completions.create({
+      model: "llama3-8b-8192",
+      messages,
+      temperature: 0.7,
+      max_tokens: 512,
+    });
 
-    // 🧠 Step 2: Translate if needed
-    if (lang === "zh") {
-      const translation = await axios.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        {
-          model: "llama3-8b-8192",
-          messages: [
-            {
-              role: "system",
-              content: "You are a translator that only translates English to Simplified Chinese. Do not explain. Only translate.",
-            },
-            {
-              role: "user",
-              content: reply,
-            },
-          ],
-          temperature: 0.3,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      reply = translation.data.choices?.[0]?.message?.content || reply;
-    }
+    const reply = completion.choices[0]?.message?.content?.trim();
 
     return {
       statusCode: 200,
       body: JSON.stringify({ reply }),
     };
   } catch (error) {
-    console.error("❌ Groq API error:", error.response?.data || error.message);
+    console.error("Error in tarot-bot:", error);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Groq request failed",
-        details: error.response?.data || error.message,
-      }),
+      body: JSON.stringify({ error: error.message || "Internal error" }),
     };
   }
 };
