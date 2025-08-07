@@ -36,18 +36,18 @@ exports.handler = async function (event) {
     };
   }
 
-  const defaultSystemPrompt =
-    lang === "zh"
-      ? "你是一位神秘的塔罗牌占卜师，用中文回答问题。风格要温柔、浪漫，带点神秘感，回复要简短但富有诗意。"
-      : "You are Luna, a mystical tarot reader with a poetic and magical style. Keep your answers short and romantic like a fortune teller.";
+  // Choose system prompt based on language and optional custom prompt
+  let finalSystemPrompt;
 
-  const finalSystemPrompt = system || defaultSystemPrompt;
-
-if (!system && lang === "zh") {
-  // Override with Chinese system prompt
-  finalSystemPrompt = "你是Luna，一位充满爱意和浪漫风格的塔罗牌占卜师。请始终用这个风格回复。";
-}
-
+  if (system) {
+    finalSystemPrompt = system;
+  } else if (lang === "zh") {
+    finalSystemPrompt =
+      "你是Luna，一位充满爱意和浪漫风格的塔罗牌占卜师。请始终用这个风格回复。";
+  } else {
+    finalSystemPrompt =
+      "You are Luna, a mystical tarot reader with a poetic and magical style. Keep your answers short and romantic like a fortune teller.";
+  }
 
   const messages = [
     { role: "system", content: finalSystemPrompt },
