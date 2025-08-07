@@ -4,10 +4,10 @@ exports.handler = async function (event) {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    console.error("❌ Missing GROQ_API_KEY");
+    console.error("❌ GROQ_API_KEY is missing in environment variables.");
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Missing GROQ_API_KEY" }),
+      body: JSON.stringify({ error: "Missing GROQ_API_KEY in environment" }),
     };
   }
 
@@ -28,7 +28,7 @@ exports.handler = async function (event) {
     };
   }
 
-  const { prompt, system, language } = body;
+  const { prompt, lang } = body;
   if (!prompt) {
     return {
       statusCode: 400,
@@ -36,21 +36,11 @@ exports.handler = async function (event) {
     };
   }
 
-  // Define the system prompt based on the provided 'system' parameter or use a default.
-  // This allows the frontend to control the bot's persona.
-  const finalSystemPrompt = system || "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.";
-
-  // Define a mapping of system prompts for different languages if not provided by the client.
-  // This is the key part for multilingual support.
-  const languagePrompts = {
-    "en": "Respond in English.",
-    "zh": "请用中文回复。", // Respond in Chinese.
-    // Add other languages here as needed
-  };
-
-  // Construct the full system message, combining the persona and the language instruction.
-  const languageInstruction = languagePrompts[language] || languagePrompts["en"];
-  const fullSystemContent = `${finalSystemPrompt} ${languageInstruction}`;
+  // Prepend language-specific instruction
+  const localizedPrompt =
+    lang === "zh"
+      ? `你是一个神秘的塔罗牌大师，请用诗意、魔法和简短的语言来回答：${prompt}`
+      : `You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller. ${prompt}`;
 
   try {
     const response = await axios.post(
@@ -58,14 +48,7 @@ exports.handler = async function (event) {
       {
         model: "llama3-8b-8192",
         messages: [
-          {
-            role: "system",
-            content: fullSystemContent,
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
+          { role: "user", content: localizedPrompt }
         ],
         temperature: 0.8,
       },
@@ -94,6 +77,7 @@ exports.handler = async function (event) {
     };
   }
 };
+
 
 // const axios = require("axios");
 
