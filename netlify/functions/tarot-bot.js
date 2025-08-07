@@ -37,29 +37,29 @@ exports.handler = async function (event) {
   }
 
   try {
-    const response = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+   const response = await axios.post(
+  "https://api.groq.com/openai/v1/chat/completions", // Ensure this URL is correct
+  {
+    model: "llama3-8b-8192",
+    messages: [
       {
-        model: "llama3-8b-8192",
-        messages: [
-          {
-            role: "system",
-            content: "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        temperature: 0.8,
+        role: "system",
+        content: "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
       },
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+        role: "user",
+        content: prompt,
+      },
+    ],
+    temperature: 0.8,
+  },
+  {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+  }
+);
 
     const answer = response.data.choices?.[0]?.message?.content;
 
