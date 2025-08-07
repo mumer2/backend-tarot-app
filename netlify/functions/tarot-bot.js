@@ -29,6 +29,7 @@ exports.handler = async function (event) {
   }
 
   const { prompt, system } = body;
+
   if (!prompt) {
     return {
       statusCode: 400,
@@ -45,12 +46,8 @@ exports.handler = async function (event) {
           {
             role: "system",
             content:
-  system ||
-  "你是一位神秘的塔罗机器人，用中文简短地回答问题，就像占卜师一样。",
-
-            // content:
-            //   system ||
-            //   "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
+              system ||
+              "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
           },
           {
             role: "user",
@@ -71,7 +68,9 @@ exports.handler = async function (event) {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ reply: answer || "✨ The spirits are quiet..." }),
+      body: JSON.stringify({
+        reply: answer || "✨ The spirits are quiet...",
+      }),
     };
   } catch (error) {
     console.error("❌ Groq API error:", error.response?.data || error.message);
