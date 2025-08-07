@@ -4,10 +4,9 @@ exports.handler = async function (event) {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    console.error("❌ GROQ_API_KEY is missing in environment variables.");
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Missing GROQ_API_KEY in environment" }),
+      body: JSON.stringify({ error: "Missing GROQ_API_KEY" }),
     };
   }
 
@@ -28,25 +27,15 @@ exports.handler = async function (event) {
     };
   }
 
-  let { question, lang = "en", system } = body;
+  const { question, lang = "en", system } = body;
 
-  if (!question || question.trim().length === 0) {
+  if (!question) {
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Question is required" }),
     };
   }
 
-  // Auto-detect Chinese in question
-  const containsChinese = /[\u4e00-\u9fff]/.test(question);
-  if (containsChinese) {
-    lang = "zh";
-  }
-
-  console.log("🌐 Current language code:", lang);
-  console.log("🔍 Received question:", question);
-
-  // Default system prompts
   const defaultSystemPrompt =
     lang === "zh"
       ? "你是一位神秘的塔罗牌占卜师，用中文回答问题。风格要温柔、浪漫，带点神秘感，回复要简短但富有诗意。"
@@ -54,25 +43,17 @@ exports.handler = async function (event) {
 
   const finalSystemPrompt = system || defaultSystemPrompt;
 
-  // Localized user prompt
-  const localizedPrompt =
-    lang === "zh" ? `请用中文回答以下问题：${question}` : question;
-
-  console.log("🔍 Sending payload to API:", {
-    lang,
-    question: localizedPrompt,
-    system: finalSystemPrompt,
-  });
+  const messages = [
+    { role: "system", content: finalSystemPrompt },
+    { role: "user", content: question },
+  ];
 
   try {
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama3-8b-8192",
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          { role: "user", content: localizedPrompt },
-        ],
+        messages,
         temperature: 0.7,
         max_tokens: 512,
       },
@@ -84,7 +65,7 @@ exports.handler = async function (event) {
       }
     );
 
-    const answer = response.data.choices[0]?.message?.content?.trim();
+    const answer = response.data.choices?.[0]?.message?.content?.trim();
 
     return {
       statusCode: 200,
