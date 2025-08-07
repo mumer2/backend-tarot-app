@@ -37,10 +37,11 @@ exports.handler = async function (event) {
     };
   }
 
-  // Multilingual system messages
+  // 🌐 Multilingual system messages
   const systemMessages = {
     en: "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
     zh: "你是一位神秘的塔罗专家。请用诗意、神秘和简短的方式回复，就像一个占卜师一样。",
+    // Add more languages here if needed
   };
 
   const system = systemMessages[language] || systemMessages.en;
@@ -87,6 +88,7 @@ exports.handler = async function (event) {
     };
   }
 };
+
 
 
 // const axios = require("axios");
