@@ -4,10 +4,10 @@ exports.handler = async function (event) {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    console.error("❌ GROQ_API_KEY is missing in environment variables.");
+    console.error("❌ Missing GROQ_API_KEY");
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Missing GROQ_API_KEY in environment" }),
+      body: JSON.stringify({ error: "Missing GROQ_API_KEY" }),
     };
   }
 
@@ -28,7 +28,8 @@ exports.handler = async function (event) {
     };
   }
 
-  const { prompt, lang } = body;
+  const { prompt, system, lang } = body;
+
   if (!prompt) {
     return {
       statusCode: 400,
@@ -36,11 +37,17 @@ exports.handler = async function (event) {
     };
   }
 
-  // Prepend language-specific instruction
-  const localizedPrompt =
-    lang === "zh"
-      ? `你是一个神秘的塔罗牌大师，请用诗意、魔法和简短的语言来回答：${prompt}`
-      : `You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller. ${prompt}`;
+  // 🌐 Localize prompt: Chinese or English only
+  let localizedPrompt = prompt;
+  if (lang === "zh") {
+    localizedPrompt = `请用中文回答以下问题：${prompt}`;
+  }
+
+  // 🧙 Default system message (tarot expert)
+  const defaultSystemMessage =
+    "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.";
+
+  const systemMessage = system || defaultSystemMessage;
 
   try {
     const response = await axios.post(
@@ -48,7 +55,8 @@ exports.handler = async function (event) {
       {
         model: "llama3-8b-8192",
         messages: [
-          { role: "user", content: localizedPrompt }
+          { role: "system", content: systemMessage },
+          { role: "user", content: localizedPrompt },
         ],
         temperature: 0.8,
       },
@@ -77,6 +85,7 @@ exports.handler = async function (event) {
     };
   }
 };
+
 
 
 // const axios = require("axios");
