@@ -28,7 +28,7 @@ exports.handler = async function (event) {
     };
   }
 
-  const { prompt, lang, system } = body;
+  const { prompt, system, lang = "en" } = body;
 
   if (!prompt) {
     return {
@@ -37,20 +37,8 @@ exports.handler = async function (event) {
     };
   }
 
-  // Language-based system messages
-  const systemMessageMap = {
-    en: "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
-    zh: "你是一位神秘的塔罗专家。用诗意、神秘且简短的语言像占卜师一样回答问题，请始终用中文回答。",
-  };
-
-  const systemMessage =
-    system || systemMessageMap[lang] || systemMessageMap["en"];
-
-  console.log("🔮 Incoming prompt:", prompt);
-  console.log("🌐 Language:", lang);
-  console.log("🧙 System Message:", systemMessage);
-
   try {
+    // 🧠 Step 1: Get answer from Groq (LLaMA)
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -58,7 +46,7 @@ exports.handler = async function (event) {
         messages: [
           {
             role: "system",
-            content: systemMessage,
+            content: system || "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
           },
           {
             role: "user",
@@ -75,11 +63,40 @@ exports.handler = async function (event) {
       }
     );
 
-    const answer = response.data.choices?.[0]?.message?.content;
+    let reply = response.data.choices?.[0]?.message?.content || "✨ The spirits are quiet...";
+
+    // 🧠 Step 2: Translate if needed
+    if (lang === "zh") {
+      const translation = await axios.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        {
+          model: "llama3-8b-8192",
+          messages: [
+            {
+              role: "system",
+              content: "You are a translator that only translates English to Simplified Chinese. Do not explain. Only translate.",
+            },
+            {
+              role: "user",
+              content: reply,
+            },
+          ],
+          temperature: 0.3,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      reply = translation.data.choices?.[0]?.message?.content || reply;
+    }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ reply: answer || "✨ The spirits are quiet..." }),
+      body: JSON.stringify({ reply }),
     };
   } catch (error) {
     console.error("❌ Groq API error:", error.response?.data || error.message);
