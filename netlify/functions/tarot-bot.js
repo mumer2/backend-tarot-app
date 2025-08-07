@@ -37,11 +37,10 @@ exports.handler = async function (event) {
     };
   }
 
-  // 👇 Prepend instruction for Chinese
   const localizedPrompt =
     lang === "zh"
-      ? `请用中文回答以下问题：${question}`
-      : question;
+      ? `你是一个神秘的塔罗占卜师，请用中文回答以下问题：${question}`
+      : `You are a mystical tarot expert. Please answer in English only: ${question}`;
 
   try {
     const response = await axios.post(
@@ -49,6 +48,7 @@ exports.handler = async function (event) {
       {
         model: "llama3-8b-8192",
         messages: [{ role: "user", content: localizedPrompt }],
+        temperature: 0.7,
       },
       {
         headers: {
@@ -58,7 +58,7 @@ exports.handler = async function (event) {
       }
     );
 
-    const answer = response.data.choices[0].message.content;
+    const answer = response.data.choices?.[0]?.message?.content?.trim() || "";
 
     return {
       statusCode: 200,
