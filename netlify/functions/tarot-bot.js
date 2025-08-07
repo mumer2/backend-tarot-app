@@ -28,16 +28,25 @@ exports.handler = async function (event) {
     };
   }
 
-  const { question, lang = "en", system } = body;
+  let { question, lang = "en", system } = body;
 
-  if (!question) {
+  if (!question || question.trim().length === 0) {
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Question is required" }),
     };
   }
 
-  // Default mystical system prompts
+  // Auto-detect Chinese in question
+  const containsChinese = /[\u4e00-\u9fff]/.test(question);
+  if (containsChinese) {
+    lang = "zh";
+  }
+
+  console.log("🌐 Current language code:", lang);
+  console.log("🔍 Received question:", question);
+
+  // Default system prompts
   const defaultSystemPrompt =
     lang === "zh"
       ? "你是一位神秘的塔罗牌占卜师，用中文回答问题。风格要温柔、浪漫，带点神秘感，回复要简短但富有诗意。"
@@ -48,6 +57,12 @@ exports.handler = async function (event) {
   // Localized user prompt
   const localizedPrompt =
     lang === "zh" ? `请用中文回答以下问题：${question}` : question;
+
+  console.log("🔍 Sending payload to API:", {
+    lang,
+    question: localizedPrompt,
+    system: finalSystemPrompt,
+  });
 
   try {
     const response = await axios.post(
