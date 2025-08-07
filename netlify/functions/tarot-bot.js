@@ -45,8 +45,12 @@ exports.handler = async function (event) {
           {
             role: "system",
             content:
-              system ||
-              "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
+  system ||
+  "你是一位神秘的塔罗机器人，用中文简短地回答问题，就像占卜师一样。",
+
+            // content:
+            //   system ||
+            //   "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
           },
           {
             role: "user",
