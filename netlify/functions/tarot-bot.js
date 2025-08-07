@@ -43,6 +43,12 @@ exports.handler = async function (event) {
 
   const finalSystemPrompt = system || defaultSystemPrompt;
 
+if (!system && lang === "zh") {
+  // Override with Chinese system prompt
+  finalSystemPrompt = "你是Luna，一位充满爱意和浪漫风格的塔罗牌占卜师。请始终用这个风格回复。";
+}
+
+
   const messages = [
     { role: "system", content: finalSystemPrompt },
     { role: "user", content: question },
