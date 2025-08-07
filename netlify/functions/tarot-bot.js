@@ -4,17 +4,17 @@ exports.handler = async function (event) {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    console.error("❌ GROQ_API_KEY is missing in environment variables.");
+    console.error("❌ Missing GROQ_API_KEY");
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Missing GROQ_API_KEY in environment" }),
+      body: JSON.stringify({ error: "Missing GROQ_API_KEY" }),
     };
   }
 
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
-      body: JSON.stringify({ error: "Only POST allowed" }),
+      body: JSON.stringify({ error: "Only POST method allowed" }),
     };
   }
 
@@ -28,27 +28,44 @@ exports.handler = async function (event) {
     };
   }
 
-  const { question, lang } = body;
+  const { prompt, lang, system } = body;
 
-  if (!question) {
+  if (!prompt) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: "Question is required" }),
+      body: JSON.stringify({ error: "Missing prompt" }),
     };
   }
 
-  // 👇 Prepend instruction for Chinese
-  const localizedPrompt =
-    lang === "zh"
-      ? `请用中文回答以下问题：${question}`
-      : question;
+  // Language-based system messages
+  const systemMessageMap = {
+    en: "You are a mystical tarot expert. Answer with poetic, magical, and short responses like a fortune teller.",
+    zh: "你是一位神秘的塔罗专家。用诗意、神秘且简短的语言像占卜师一样回答问题，请始终用中文回答。",
+  };
+
+  const systemMessage =
+    system || systemMessageMap[lang] || systemMessageMap["en"];
+
+  console.log("🔮 Incoming prompt:", prompt);
+  console.log("🌐 Language:", lang);
+  console.log("🧙 System Message:", systemMessage);
 
   try {
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         model: "llama3-8b-8192",
-        messages: [{ role: "user", content: localizedPrompt }],
+        messages: [
+          {
+            role: "system",
+            content: systemMessage,
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        temperature: 0.8,
       },
       {
         headers: {
@@ -58,11 +75,11 @@ exports.handler = async function (event) {
       }
     );
 
-    const answer = response.data.choices[0].message.content;
+    const answer = response.data.choices?.[0]?.message?.content;
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ answer }),
+      body: JSON.stringify({ reply: answer || "✨ The spirits are quiet..." }),
     };
   } catch (error) {
     console.error("❌ Groq API error:", error.response?.data || error.message);
@@ -75,6 +92,7 @@ exports.handler = async function (event) {
     };
   }
 };
+
 
 
 // const axios = require("axios");
