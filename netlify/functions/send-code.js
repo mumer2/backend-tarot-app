@@ -69,7 +69,7 @@ exports.handler = async (event) => {
       ExtendNo: '',
       ProductId: PRODUCT_ID,
       PhoneNos: formattedPhone,
-      Content: `【TarotStation】您的验证码是 ${code}，5分钟内有效。`,
+      Content: `【Beijing guo yue Technology】您的验证码是 ${code}，5分钟内有效。`,
       SendTime: '',
       OutId: '',
     };
