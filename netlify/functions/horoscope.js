@@ -16,6 +16,11 @@ const luckyData = {
   Pisces: { color: 'Sea Green', number: 7 },
 };
 
+// Helper: detect if string contains Chinese characters
+function isChinese(text) {
+  return /[\u4e00-\u9fff]/.test(text);
+}
+
 const getDateRangeText = (period) => {
   const today = dayjs();
 
@@ -36,7 +41,7 @@ const getDateRangeText = (period) => {
   return '';
 };
 
-exports.handler = async function (event, context) {
+exports.handler = async function(event, context) {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -45,7 +50,7 @@ exports.handler = async function (event, context) {
   }
 
   try {
-    const { sign, period, language } = JSON.parse(event.body);
+    const { sign, period } = JSON.parse(event.body);
 
     if (!sign || !period) {
       return {
@@ -63,21 +68,15 @@ exports.handler = async function (event, context) {
       };
     }
 
-    // Normalize language, default to English
-    const lang = language && typeof language === 'string' ? language.toLowerCase() : 'en';
+    // Detect language from zodiac sign string
+    const language = isChinese(sign) ? 'zh' : 'en';
 
-    // Supported languages, extend as needed
-    const supportedLanguages = ['en', 'zh'];
-    const effectiveLang = supportedLanguages.includes(lang) ? lang : 'en';
-
-    // Build prompt based on language
+    // Build prompt with language-specific instruction
     let prompt = `Write a detailed ${period} horoscope for the zodiac sign ${sign}. Do not include dates or lucky numbers/colors in your response.`;
 
-    if (effectiveLang === 'zh') {
+    if (language === 'zh') {
       prompt += ' 请用中文写这段运势。'; // "Please write this horoscope in Chinese."
     }
-
-    // You can add other languages here with else if blocks
 
     const response = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
@@ -117,6 +116,7 @@ exports.handler = async function (event, context) {
     };
   }
 };
+
 
 
 
