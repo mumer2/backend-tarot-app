@@ -63,7 +63,7 @@ exports.handler = async function(event, context) {
       };
     }
 
-    const prompt = `Write a detailed ${period} horoscope for the zodiac sign ${sign}.`;
+    const prompt = `Write a detailed ${period} horoscope for the zodiac sign ${sign}. Do not include dates or lucky numbers/colors in your response.`;
 
     const response = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
@@ -83,20 +83,17 @@ exports.handler = async function(event, context) {
 
     const horoscopeText = response.data.choices?.[0]?.message?.content?.trim() || '';
 
-    // Compose guaranteed date range + lucky info
     const dateRange = getDateRangeText(period);
     const lucky = luckyData[sign] || { color: 'N/A', number: 'N/A' };
 
-    const fullHoroscope = `${horoscopeText}
-
----
-Date: ${dateRange}
-Lucky Color: ${lucky.color}
-Lucky Number: ${lucky.number}`;
-
     return {
       statusCode: 200,
-      body: JSON.stringify({ horoscope: fullHoroscope }),
+      body: JSON.stringify({
+        horoscope: horoscopeText,
+        dateRange,
+        luckyColor: lucky.color,
+        luckyNumber: lucky.number,
+      }),
     };
   } catch (error) {
     console.error('Grok API error:', error.message || error);
