@@ -36,7 +36,7 @@ const getDateRangeText = (period) => {
   return '';
 };
 
-exports.handler = async function(event, context) {
+exports.handler = async function (event, context) {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -63,19 +63,21 @@ exports.handler = async function(event, context) {
       };
     }
 
-    // Default to English if language not provided or not supported
-    const lang = (language && ['en', 'zh'].includes(language.toLowerCase())) ? language.toLowerCase() : 'en';
+    // Normalize language, default to English
+    const lang = language && typeof language === 'string' ? language.toLowerCase() : 'en';
 
-    // Modify prompt based on language
+    // Supported languages, extend as needed
+    const supportedLanguages = ['en', 'zh'];
+    const effectiveLang = supportedLanguages.includes(lang) ? lang : 'en';
+
+    // Build prompt based on language
     let prompt = `Write a detailed ${period} horoscope for the zodiac sign ${sign}. Do not include dates or lucky numbers/colors in your response.`;
 
-    if (lang === 'zh') {
+    if (effectiveLang === 'zh') {
       prompt += ' 请用中文写这段运势。'; // "Please write this horoscope in Chinese."
-    } else if (lang === 'en') {
-      // English - no change needed
-    } else {
-      // For other languages, you can add conditions here if needed
     }
+
+    // You can add other languages here with else if blocks
 
     const response = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
