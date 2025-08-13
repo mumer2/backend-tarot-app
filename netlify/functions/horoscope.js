@@ -31,9 +31,9 @@ exports.handler = async function(event, context) {
     const prompt = `Write a detailed ${period} horoscope for the zodiac sign ${sign}.`;
 
     const response = await axios.post(
-      'https://api.grok.lol/v1/chat/completions',
+      'https://api.groq.com/openai/v1/chat/completions',
       {
-        model: 'gpt-4o-mini',
+        model: 'llama3-8b-8192',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 500,
         temperature: 0.7,
