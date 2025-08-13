@@ -19,7 +19,7 @@ exports.handler = async function(event, context) {
       };
     }
 
-    const GROK_API_KEY = process.env.GROK_API_KEY;
+    const GROK_API_KEY = process.env.GROQ_API_KEY;
 
     if (!GROK_API_KEY) {
       return {
