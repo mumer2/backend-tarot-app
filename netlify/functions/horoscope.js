@@ -28,7 +28,7 @@ exports.handler = async function(event, context) {
       };
     }
 
-    const prompt = `Write a detailed ${period} horoscope for the zodiac sign ${sign}.`;
+        const prompt = `Write a detailed ${period} horoscope for the zodiac sign ${sign}, including the date or date range at the top.`;
 
     const response = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
