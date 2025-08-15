@@ -69,7 +69,8 @@ exports.handler = async (event) => {
       ExtendNo: '',
       ProductId: PRODUCT_ID,
       PhoneNos: formattedPhone,
-      Content: `【Beijing Zhan Yue Technology】Your verification code is ${code}, and it is valid for 5 minutes.`,
+      // Content: `【Beijing Zhan Yue Technology】Your verification code is ${code}, and it is valid for 5 minutes.`,
+      Content: `【北京展越科技】您的验证码为${code}，有效期5分钟。`,
       SendTime: '',
       OutId: '',
     };
