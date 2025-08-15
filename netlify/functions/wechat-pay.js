@@ -56,7 +56,7 @@ exports.handler = async (event) => {
     const mch_id = process.env.WECHAT_MCH_ID;
     const key = process.env.WECHAT_API_KEY;
     const notify_url = "https://backend-tarot-app.netlify.app/.netlify/functions/wechat-notify";
-    const redirect_url = "https://tarotstation.com/payment-success";
+    const redirect_url = "https://successscreen.netlify.app/success.html";
     const trade_type = "MWEB";
     const ip = event.headers['x-forwarded-for']?.split(',')[0] || "8.8.8.8";
 
@@ -64,7 +64,7 @@ exports.handler = async (event) => {
     const scene_info_json = JSON.stringify({
       h5_info: {
         type: "Wap",
-        wap_url: "https://tarotstation.com",
+        wap_url: "https://tarotstation.netlify.app/",
         wap_name: "Tarot Wallet"
       }
     });
