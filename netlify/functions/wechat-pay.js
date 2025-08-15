@@ -4,69 +4,76 @@ const xml2js = require("xml2js");
 const { MongoClient } = require("mongodb");
 require("dotenv").config();
 
-const { MONGO_URI, WECHAT_APPID, WECHAT_MCH_ID, WECHAT_API_KEY } = process.env;
-
-let cachedDb = null;
-const connectDB = async () => {
-  if (cachedDb) return cachedDb;
-  const client = new MongoClient(MONGO_URI);
-  await client.connect();
-  cachedDb = client.db("tarot-station");
-  return cachedDb;
-};
-
+// 🔹 Generate random nonce string
 const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
 
+// 🔹 Connect to MongoDB
+const connectDB = async () => {
+  const client = new MongoClient(process.env.MONGO_URI);
+  await client.connect();
+  return client.db("tarot-station");
+};
+
+// 🔹 Create WeChat sign
 const createSign = (params, key) => {
   const stringA = Object.keys(params)
-    .filter(k => params[k] !== undefined && params[k] !== "" && k !== "sign")
+    .filter(k => params[k] !== undefined && params[k] !== "")
     .sort()
     .map(k => `${k}=${params[k]}`)
     .join("&");
   const stringSignTemp = `${stringA}&key=${key}`;
-  console.log("🔍 String to sign:", stringSignTemp);
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
 
 exports.handler = async (event) => {
   try {
     const body = JSON.parse(event.body || "{}");
-    const total_fee = body.total_fee || 1;
+    const total_fee = body.total_fee || 1; // in cents
     const userId = (body.userId || "guest").toString();
 
     const shortUserId = userId.slice(0, 6);
     const out_trade_no = `U${shortUserId}${Date.now().toString().slice(-10)}`;
 
+    // ✅ CONFIG
+    const appid = process.env.WECHAT_APPID;
+    const mch_id = process.env.WECHAT_MCH_ID;
+    const key = process.env.WECHAT_API_KEY;
     const notify_url = "https://backend-tarot-app.netlify.app/.netlify/functions/wechat-notify";
     const redirect_url = "https://tarotstation.com/payment-success";
+    const trade_type = "MWEB";
+
+    // ✅ Properly wrap scene_info in CDATA
+    const scene_info = JSON.stringify({
+      h5_info: {
+        type: "Wap",
+        wap_url: "https://tarotstation.com",
+        wap_name: "Tarot Wallet"
+      }
+    });
 
     const params = {
-      appid: WECHAT_APPID,
-      mch_id: WECHAT_MCH_ID,
+      appid,
+      mch_id,
       nonce_str: generateNonceStr(),
       body: "Tarot Wallet Recharge",
       out_trade_no,
-      total_fee: total_fee.toString(), // must be string
-      spbill_create_ip: event.headers["x-forwarded-for"]?.split(",")[0] || "127.0.0.1",
+      total_fee: total_fee.toString(),
+      spbill_create_ip: event.headers['x-forwarded-for']?.split(',')[0] || "8.8.8.8",
       notify_url,
-      trade_type: "MWEB",
-      scene_info: JSON.stringify({
-        h5_info: {
-          type: "Wap",
-          wap_url: "https://tarotstation.com",
-          wap_name: "Tarot Wallet"
-        }
-      })
+      trade_type,
+      scene_info // JSON string (will be wrapped in CDATA by builder)
     };
 
-    const sign = createSign(params, WECHAT_API_KEY);
+    // 🔹 Sign
+    const sign = createSign(params, key);
 
-    // XML builder — WeChat requires root `<xml>` with CDATA where appropriate
-    const builder = new xml2js.Builder({ rootName: "xml", headless: true });
+    // 🔹 Build XML with CDATA
+    const builder = new xml2js.Builder({ rootName: "xml", headless: true, cdata: true });
     const xmlData = builder.buildObject({ ...params, sign });
 
-    console.log("📤 XML sent to WeChat:\n", xmlData);
+    console.log("📤 Sending XML to WeChat:\n", xmlData);
 
+    // 🔹 Request WeChat unifiedorder
     const response = await axios.post(
       "https://api.mch.weixin.qq.com/pay/unifiedorder",
       xmlData,
@@ -81,6 +88,7 @@ exports.handler = async (event) => {
     if (result.return_code === "SUCCESS" && result.result_code === "SUCCESS") {
       const mweb_url = `${result.mweb_url}&redirect_url=${encodeURIComponent(redirect_url)}`;
 
+      // ✅ Save order
       const db = await connectDB();
       await db.collection("wechat_orders").insertOne({
         out_trade_no,
@@ -98,16 +106,6 @@ exports.handler = async (event) => {
         })
       };
     } else {
-      const db = await connectDB();
-      await db.collection("wechat_orders").insertOne({
-        out_trade_no,
-        userId,
-        total_fee,
-        status: "FAILED",
-        error: result.return_msg || result.err_code_des,
-        createdAt: new Date()
-      });
-
       return {
         statusCode: 400,
         body: JSON.stringify({
@@ -117,7 +115,7 @@ exports.handler = async (event) => {
       };
     }
   } catch (err) {
-    console.error("❌ WeChat H5 Pay Error:", err);
+    console.error("❌ WeChat H5 Pay Error:", err.message || err, err.stack);
     return {
       statusCode: 500,
       body: JSON.stringify({
