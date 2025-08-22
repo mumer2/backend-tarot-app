@@ -1,5 +1,5 @@
 // netlify/functions/alipay-pay.js
-const crypto = require("crypto");
+const { AlipaySdk } = require("alipay-sdk");
 
 exports.handler = async (event) => {
   try {
@@ -8,29 +8,28 @@ exports.handler = async (event) => {
     }
 
     const { amount, userId } = JSON.parse(event.body);
+
     if (!amount || !userId) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing amount or userId" }) };
     }
 
-    // ESM dynamic import
-    const AlipaySdkModule = await import("alipay-sdk");
-    const AlipaySdk = AlipaySdkModule.default; // get the default export (class)
-
+    // Initialize Alipay SDK
     const alipaySdk = new AlipaySdk({
       appId: process.env.ALIPAY_APP_ID,
       privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
       alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
       signType: "RSA2",
-      timeout: 30000,
+      timeout: 30000, // 30 seconds
     });
 
     const orderId = "order_" + Date.now();
 
+    // Generate order string for mobile app
     const orderInfo = await alipaySdk.exec("alipay.trade.app.pay", {
       bizContent: {
         subject: "Tarot Coins Recharge",
         out_trade_no: orderId,
-        total_amount: amount.toFixed(2),
+        total_amount: Number(amount).toFixed(2),
         product_code: "QUICK_MSECURITY_PAY",
         passback_params: encodeURIComponent(userId),
       },
