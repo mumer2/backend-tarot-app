@@ -1,141 +1,3 @@
-// netlify/functions/alipay-notify.js
-const { MongoClient } = require("mongodb");
-const querystring = require("querystring");
-const {AlipaySdk} = require("alipay-sdk");
-
-const appId = process.env.ALIPAY_APP_ID;
-const privateKey = process.env.APP_PRIVATE_KEY;
-const alipayPublicKey = process.env.ALIPAY_PUBLIC_KEY;
-const gateway = process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do";
-const mongoUri = process.env.MONGO_URI;
-const mongoDbName = "tarot-station";
-
-let cachedDb;
-async function connectToDatabase() {
-  if (cachedDb) return cachedDb;
-  const client = new MongoClient(mongoUri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  });
-  await client.connect();
-  cachedDb = client.db(mongoDbName);
-  return cachedDb;
-}
-
-const alipay = new AlipaySdk({
-  appId,
-  privateKey,
-  alipayPublicKey,
-  gateway,
-  signType: "RSA2",
-});
-
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
-  // Alipay sends x-www-form-urlencoded
-  const params = querystring.parse(event.body || "");
-
-  try {
-    // ✅ Verify signature
-    const valid = alipay.checkNotifySign(params);
-    if (!valid) {
-      console.error("❌ Invalid Alipay signature", params);
-      return { statusCode: 400, body: "failure" };
-    }
-
-    const {
-      out_trade_no: outTradeNo,
-      trade_status: tradeStatus,
-      trade_no: tradeNo,
-      total_amount: totalAmount,
-      buyer_logon_id: buyer,
-      passback_params,
-    } = params;
-
-    // Extract userId from outTradeNo = ORD_<userId>_<random>
-    let userId = "unknown_user";
-    if (typeof outTradeNo === "string" && outTradeNo.startsWith("ORD_")) {
-      const parts = outTradeNo.split("_");
-      if (parts.length >= 3) {
-        userId = parts[1];
-      }
-    }
-
-    const amount = parseFloat(totalAmount || "0");
-
-    // ✅ Handle success
-    if (tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED") {
-      try {
-        const db = await connectToDatabase();
-        const wallets = db.collection("wallets");
-        const recharges = db.collection("wallet_history");
-        const orders = db.collection("orders");
-
-        // Update wallet balance
-        await wallets.updateOne(
-          { userId },
-          { $inc: { balance: amount } },
-          { upsert: true }
-        );
-
-        // Insert recharge history (with raw params for debugging)
-        await recharges.insertOne({
-          userId,
-          amount,
-          method: "Alipay",
-          timestamp: new Date(),
-          tradeNo,
-          outTradeNo,
-          buyer,
-          passback_params: passback_params || null,
-          status: "completed",
-          rawParams: params,
-        });
-
-        // Update order as PAID
-        await orders.updateOne(
-          { outTradeNo },
-          {
-            $set: {
-              status: "PAID",
-              tradeNo,
-              totalAmount: amount,
-              buyer,
-              updatedAt: new Date(),
-            },
-          }
-        );
-
-        console.log(`✅ Alipay payment recorded for user ${userId}: +${amount}`);
-      } catch (err) {
-        console.error("❌ Database error in notify:", err);
-        return { statusCode: 200, body: "failure" }; // Let Alipay retry
-      }
-
-      // MUST return "success" for Alipay to stop retries
-      return { statusCode: 200, body: "success" };
-    }
-
-    // ❕ Non-success statuses
-    try {
-      const db = await connectToDatabase();
-      await db.collection("orders").updateOne(
-        { outTradeNo },
-        { $set: { status: tradeStatus || "UNKNOWN", updatedAt: new Date() } }
-      );
-    } catch (e) {
-      console.error("Error updating order for non-success status", e);
-    }
-
-    return { statusCode: 200, body: "success" };
-  } catch (err) {
-    console.error("Notify handler error", err);
-    return { statusCode: 200, body: "failure" }; // tell Alipay to retry
-  }
-};
 
 
 
@@ -236,75 +98,75 @@ exports.handler = async (event) => {
 
 
 
-// // netlify/functions/alipay-notify.js
-// const { AlipaySdk } = require("alipay-sdk");
-// const qs = require("qs");
+// netlify/functions/alipay-notify.js
+const { AlipaySdk } = require("alipay-sdk");
+const qs = require("qs");
 
-// const alipay = new AlipaySdk({
-//   appId: process.env.ALIPAY_APP_ID,
-//   privateKey: process.env.APP_PRIVATE_KEY,
-//   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-//   gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do",
-//   signType: "RSA2",
-// });
+const alipay = new AlipaySdk({
+  appId: process.env.ALIPAY_APP_ID,
+  privateKey: process.env.APP_PRIVATE_KEY,
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+  gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do",
+  signType: "RSA2",
+});
 
-// // Simple response helper
-// function textResponse(body, status = 200) {
-//   return {
-//     statusCode: status,
-//     headers: {
-//       "Content-Type": "text/plain",
-//       "Access-Control-Allow-Origin": "*",
-//     },
-//     body,
-//   };
-// }
+// Simple response helper
+function textResponse(body, status = 200) {
+  return {
+    statusCode: status,
+    headers: {
+      "Content-Type": "text/plain",
+      "Access-Control-Allow-Origin": "*",
+    },
+    body,
+  };
+}
 
-// exports.handler = async (event) => {
-//   try {
-//     // Alipay sends `application/x-www-form-urlencoded`
-//     const isForm =
-//       (event.headers["content-type"] ||
-//         event.headers["Content-Type"] ||
-//         "").includes("application/x-www-form-urlencoded");
+exports.handler = async (event) => {
+  try {
+    // Alipay sends `application/x-www-form-urlencoded`
+    const isForm =
+      (event.headers["content-type"] ||
+        event.headers["Content-Type"] ||
+        "").includes("application/x-www-form-urlencoded");
 
-//     const bodyString = event.isBase64Encoded
-//       ? Buffer.from(event.body || "", "base64").toString("utf8")
-//       : event.body || "";
+    const bodyString = event.isBase64Encoded
+      ? Buffer.from(event.body || "", "base64").toString("utf8")
+      : event.body || "";
 
-//     const payload = isForm
-//       ? qs.parse(bodyString)
-//       : (() => {
-//           try {
-//             return JSON.parse(bodyString);
-//           } catch {
-//             return {};
-//           }
-//         })();
+    const payload = isForm
+      ? qs.parse(bodyString)
+      : (() => {
+          try {
+            return JSON.parse(bodyString);
+          } catch {
+            return {};
+          }
+        })();
 
-//     // ✅ Verify signature
-//     const ok = alipay.checkNotifySign(payload);
+    // ✅ Verify signature
+    const ok = alipay.checkNotifySign(payload);
 
-//     if (!ok) {
-//       console.warn("❌ Invalid Alipay notify sign:", payload);
-//       return textResponse("invalid sign", 400);
-//     }
+    if (!ok) {
+      console.warn("❌ Invalid Alipay notify sign:", payload);
+      return textResponse("invalid sign", 400);
+    }
 
-//     const tradeStatus = payload.trade_status;
-//     const outTradeNo = payload.out_trade_no;
+    const tradeStatus = payload.trade_status;
+    const outTradeNo = payload.out_trade_no;
 
-//     // ✅ Update your DB/order system here
-//     if (tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED") {
-//       console.log("✅ Payment success:", outTradeNo);
-//       // TODO: mark order as paid
-//     } else {
-//       console.log("ℹ️ Notify status:", tradeStatus, "for order:", outTradeNo);
-//     }
+    // ✅ Update your DB/order system here
+    if (tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED") {
+      console.log("✅ Payment success:", outTradeNo);
+      // TODO: mark order as paid
+    } else {
+      console.log("ℹ️ Notify status:", tradeStatus, "for order:", outTradeNo);
+    }
 
-//     // ✅ Alipay requires plain 'success' response
-//     return textResponse("success");
-//   } catch (err) {
-//     console.error("❌ notify error:", err);
-//     return textResponse("error", 500);
-//   }
-// };
+    // ✅ Alipay requires plain 'success' response
+    return textResponse("success");
+  } catch (err) {
+    console.error("❌ notify error:", err);
+    return textResponse("error", 500);
+  }
+};
