@@ -63,7 +63,7 @@ exports.handler = async (event) => {
   const signContent = Object.keys(params).sort().map(key => `${key}=${params[key]}`).join('&');
   const signer = crypto.createSign('RSA-SHA256');
   signer.update(signContent);
-  const sign = signer.sign(ALIPAY_PRIVATE_KEY, 'base64');
+  const sign = signer.sign(APP_PRIVATE_KEY, 'base64');
   params.sign = sign;
 
   // Build the final order string
