@@ -8,6 +8,7 @@ const alipay = new AlipaySdk({
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
   gateway: "https://openapi.alipaydev.com/gateway.do",
   signType: "RSA2",
+   timeout: 15000, // 15 seconds
 });
 
 // Helper: CORS wrapper
