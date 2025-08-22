@@ -35,7 +35,7 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  // Alipay sends application/x-www-form-urlencoded
+  // Alipay sends x-www-form-urlencoded
   const params = querystring.parse(event.body || "");
 
   try {
@@ -55,24 +55,24 @@ exports.handler = async (event) => {
       passback_params,
     } = params;
 
-    // ✅ Handle successful payments
+    // Extract userId from outTradeNo = ORD_<userId>_<random>
+    let userId = "unknown_user";
+    if (typeof outTradeNo === "string" && outTradeNo.startsWith("ORD_")) {
+      const parts = outTradeNo.split("_");
+      if (parts.length >= 3) {
+        userId = parts[1];
+      }
+    }
+
+    const amount = parseFloat(totalAmount || "0");
+
+    // ✅ Handle success
     if (tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED") {
       try {
         const db = await connectToDatabase();
         const wallets = db.collection("wallets");
         const recharges = db.collection("wallet_history");
         const orders = db.collection("orders");
-
-        // Try to extract userId from outTradeNo (e.g. "ORD_<userId>_<random>")
-        let userId = "unknown_user";
-        if (typeof outTradeNo === "string" && outTradeNo.startsWith("ORD_")) {
-          const parts = outTradeNo.split("_");
-          if (parts.length >= 3) {
-            userId = parts[1];
-          }
-        }
-
-        const amount = parseFloat(totalAmount || "0");
 
         // Update wallet balance
         await wallets.updateOne(
@@ -81,7 +81,7 @@ exports.handler = async (event) => {
           { upsert: true }
         );
 
-        // Save recharge history
+        // Insert recharge history (with raw params for debugging)
         await recharges.insertOne({
           userId,
           amount,
@@ -92,9 +92,10 @@ exports.handler = async (event) => {
           buyer,
           passback_params: passback_params || null,
           status: "completed",
+          rawParams: params,
         });
 
-        // Update order status as PAID
+        // Update order as PAID
         await orders.updateOne(
           { outTradeNo },
           {
@@ -111,15 +112,14 @@ exports.handler = async (event) => {
         console.log(`✅ Alipay payment recorded for user ${userId}: +${amount}`);
       } catch (err) {
         console.error("❌ Database error in notify:", err);
-        // Return failure to let Alipay retry later
-        return { statusCode: 200, body: "failure" };
+        return { statusCode: 200, body: "failure" }; // Let Alipay retry
       }
 
-      // ✅ MUST return 'success' for Alipay to stop retrying
+      // MUST return "success" for Alipay to stop retries
       return { statusCode: 200, body: "success" };
     }
 
-    // Handle non-success statuses
+    // ❕ Non-success statuses
     try {
       const db = await connectToDatabase();
       await db.collection("orders").updateOne(

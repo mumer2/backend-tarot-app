@@ -49,7 +49,7 @@ exports.handler = async (event) => {
 
     // Callback URLs
     const return_url = `${baseUrl}/alipay-return`;
-    const notify_url = `${baseUrl}/.netlify/functions/alipay-notify`;
+    const notify_url = `${baseUrl}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`;
 
     // Save order in DB
     const db = await connectToDatabase();
