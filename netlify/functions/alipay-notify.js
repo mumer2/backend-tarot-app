@@ -1,61 +1,64 @@
-// netlify/functions/alipay-notify.js
-const AlipaySdk = require("alipay-sdk").default;
+const { AlipaySdk } = require("alipay-sdk");
 const { MongoClient } = require("mongodb");
-
-const alipaySdk = new AlipaySdk({
-  appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
-});
-
-let cachedDb = null;
-const connectToDatabase = async (uri) => {
-  if (cachedDb) return cachedDb;
-  const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
-  await client.connect();
-  cachedDb = client.db("tarot-station");
-  return cachedDb;
-};
 
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
-    }
+    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
-    // Parse form-urlencoded payload from Alipay
-    const params = new URLSearchParams(event.body);
-    const alipayParams = {};
+    const body = event.body;
+    const params = new URLSearchParams(body);
+
+    const notifyData = {};
     for (const [key, value] of params.entries()) {
-      alipayParams[key] = value;
+      notifyData[key] = value;
     }
 
-    // ✅ Verify Alipay signature
-    const verified = alipaySdk.checkNotifySign(alipayParams);
-    if (!verified) {
-      return { statusCode: 400, body: "Invalid signature" };
+    console.log("🔔 Alipay Notify Data:", notifyData);
+
+    const alipaySdk = new AlipaySdk({
+      appId: process.env.ALIPAY_APP_ID,
+      privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
+      signType: "RSA2",
+    });
+
+    const isVerified = alipaySdk.checkNotifySign(notifyData);
+    if (!isVerified) {
+      console.error("❌ Invalid signature");
+      return { statusCode: 400, body: "fail" };
     }
 
-    // ✅ Only handle successful trade
-    if (alipayParams.trade_status === "TRADE_SUCCESS") {
-      const userId = alipayParams.passback_params; // passed from alipay-pay.js
-      const amount = parseFloat(alipayParams.total_amount);
+    if (notifyData.trade_status === "TRADE_SUCCESS") {
+      const userId = decodeURIComponent(notifyData.passback_params || "");
+      const amount = parseFloat(notifyData.total_amount);
 
-      const db = await connectToDatabase(process.env.MONGO_URI);
-      await db.collection("wallets").updateOne(
-        { userId },
-        { $inc: { balance: amount } },
-        { upsert: true }
-      );
+      try {
+        const client = new MongoClient(process.env.MONGO_URI);
+        await client.connect();
+        const db = client.db("tarot-station");
+
+        await db.collection("wallets").updateOne(
+          { userId },
+          { $inc: { balance: amount }, $setOnInsert: { createdAt: new Date() } },
+          { upsert: true }
+        );
+
+        console.log(`💰 Wallet updated for ${userId}: +${amount}`);
+        await client.close();
+      } catch (dbErr) {
+        console.error("❌ MongoDB Error:", dbErr);
+      }
+
+      return { statusCode: 200, body: "success" };
     }
 
-    // ✅ Alipay requires "success" as response body
     return { statusCode: 200, body: "success" };
   } catch (err) {
-    console.error("Alipay Notify Error:", err);
-    return { statusCode: 500, body: "Server Error" };
+    console.error("❌ Notify Error:", err);
+    return { statusCode: 500, body: "fail" };
   }
 };
+
 
 
 
