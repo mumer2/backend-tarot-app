@@ -1,48 +1,58 @@
-// netlify/functions/alipay-pay.js
-const { AlipaySdk } = require("alipay-sdk"); // ✅ correct import
+const { AlipaySdk } = require("alipay-sdk");
 const crypto = require("crypto");
 
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.APP_PRIVATE_KEY,
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
   gateway: "https://openapi.alipaydev.com/gateway.do", // sandbox
   signType: "RSA2",
+  timeout: 15000, // 15 seconds to avoid request timeout
 });
 
 exports.handler = async (event) => {
   try {
     if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
+      return { statusCode: 405, body: "Method Not Allowed" };
     }
 
     const { amount, userId } = JSON.parse(event.body);
+
     if (!amount || !userId) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Amount and userId required" }) };
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Amount and userId are required" }),
+      };
     }
 
-    // ✅ bizContent must be a plain object, DO NOT stringify it here
+    // ✅ bizContent must be a plain object
     const bizContent = {
       out_trade_no: crypto.randomBytes(16).toString("hex"),
       product_code: "QUICK_WAP_WAY",
       total_amount: amount.toString(),
       subject: "Tarot Station Wallet Recharge",
-      passback_params: userId, // used in notify callback
+      passback_params: encodeURIComponent(userId), // encode userId
     };
 
-    // ✅ exec expects bizContent as object, not JSON string
     const url = await alipaySdk.exec("alipay.trade.wap.pay", {
       notifyUrl: `${process.env.URL}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`,
       returnUrl: `${process.env.URL}/payment-success`,
-      bizContent, // ← pass object directly
+      bizContent, // ✅ pass as object
     });
 
-    return { statusCode: 200, body: JSON.stringify({ paymentUrl: url }) };
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ paymentUrl: url }),
+    };
   } catch (err) {
     console.error("Alipay Pay Error:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message }),
+    };
   }
 };
+
 
 
 
