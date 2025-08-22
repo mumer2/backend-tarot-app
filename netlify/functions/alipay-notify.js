@@ -1,19 +1,26 @@
+// netlify/functions/alipay-notify.js
 const crypto = require("crypto");
 const { MongoClient } = require("mongodb");
 
 let cachedDb = null;
+
+// 🔹 MongoDB connection helper
 const connectToDatabase = async (uri) => {
   if (cachedDb) return cachedDb;
-  const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+  const client = new MongoClient(uri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
   await client.connect();
   cachedDb = client.db("tarot-station");
   return cachedDb;
 };
 
-// ✅ Verify Alipay signature
+// 🔹 Verify Alipay signature
 function verifyAlipaySignature(params, alipayPublicKey) {
   const { sign, sign_type, ...unsignedParams } = params;
 
+  // Build canonical string (exclude sign & sign_type)
   const sortedParams = Object.keys(unsignedParams)
     .sort()
     .map((key) => `${key}=${unsignedParams[key]}`)
@@ -21,7 +28,6 @@ function verifyAlipaySignature(params, alipayPublicKey) {
 
   const verifier = crypto.createVerify("RSA-SHA256");
   verifier.update(sortedParams, "utf8");
-
   return verifier.verify(alipayPublicKey, sign, "base64");
 }
 
@@ -31,14 +37,16 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Alipay sends x-www-form-urlencoded
+    // 🔹 Parse Alipay form-data (x-www-form-urlencoded)
     const bodyString = event.isBase64Encoded
       ? Buffer.from(event.body || "", "base64").toString("utf8")
-      : (event.body || "");
+      : event.body || "";
 
     const params = Object.fromEntries(new URLSearchParams(bodyString));
 
-    // ✅ Verify signature
+    console.log("🔔 Alipay Notify Params:", params);
+
+    // 🔹 Verify signature
     const isValid = verifyAlipaySignature(params, process.env.ALIPAY_PUBLIC_KEY);
     if (!isValid) {
       console.warn("❌ Invalid Alipay notify sign:", params);
@@ -47,7 +55,7 @@ exports.handler = async (event) => {
 
     const tradeStatus = params.trade_status;
     const outTradeNo = params.out_trade_no;
-    const userId = params.passback_params; // you should send userId when creating order
+    const userId = params.passback_params; // sent from alipay-pay.js
     const amount = parseFloat(params.total_amount);
 
     if (tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED") {
@@ -56,21 +64,21 @@ exports.handler = async (event) => {
         const wallets = db.collection("wallets");
         const recharges = db.collection("wallet_history");
 
-        // ✅ Update wallet
+        // 🔹 Update wallet balance
         await wallets.updateOne(
           { userId },
           { $inc: { balance: amount } },
           { upsert: true }
         );
 
-        // ✅ Log recharge
+        // 🔹 Log recharge transaction
         await recharges.insertOne({
           userId,
           amount,
           method: "Alipay",
           timestamp: new Date(),
           orderId: outTradeNo,
-          status: "completed"
+          status: "completed",
         });
 
         console.log(`✅ Wallet updated for user ${userId}: +${amount} via Alipay`);
@@ -80,11 +88,11 @@ exports.handler = async (event) => {
       }
     }
 
-    // ✅ Must return "success" to Alipay
+    // 🔹 MUST return plain "success" so Alipay stops retrying
     return {
       statusCode: 200,
       headers: { "Content-Type": "text/plain" },
-      body: "success"
+      body: "success",
     };
   } catch (err) {
     console.error("❌ Notify handler error:", err);

@@ -1,8 +1,9 @@
-const { AlipaySdk } = require("alipay-sdk");
+// netlify/functions/alipay-pay.js
+const AlipaySdk = require("alipay-sdk").default;
 
 const alipay = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.APP_PRIVATE_KEY, // ✅ PKCS#8 string with \n
+  privateKey: process.env.APP_PRIVATE_KEY, // PKCS#8 string with \n
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
   gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do",
   signType: "RSA2",
@@ -37,30 +38,26 @@ exports.handler = async (event) => {
 
     const outTradeNo = `ORDER_${Date.now()}`;
 
+    // Only business fields inside bizContent
     const params = {
       method: "alipay.trade.wap.pay",
-      return_url: "https://successscreen.netlify.app/success.html",
-      notify_url: "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
       bizContent: {
         out_trade_no: outTradeNo,
         product_code: "QUICK_WAP_WAY",
         total_amount: String(amount),
         subject,
         quit_url: "https://successscreen.netlify.app/cancel.html",
-        passback_params: userId, // ✅ this will be returned in notify webhook
+        passback_params: userId, // ✅ returned in notify
       },
     };
 
-    let url;
-
-    // Try pageExecute first, fallback to exec
-    if (typeof alipay.pageExecute === "function") {
-      const r = await alipay.pageExecute(params, { method: "GET" });
-      url = typeof r === "string" ? r : r?.url;
-    } else {
-      const signedQuery = await alipay.exec("alipay.trade.wap.pay", params);
-      url = `${alipay.config.gateway}?${signedQuery}`;
-    }
+    // Add return_url + notify_url in exec options
+    const url = await alipay.exec("alipay.trade.wap.pay", params, {
+      method: "GET",
+      return_url: "https://successscreen.netlify.app/success.html",
+      notify_url:
+        "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
+    });
 
     if (!url) throw new Error("Failed to build Alipay URL");
 
