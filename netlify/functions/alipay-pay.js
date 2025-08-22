@@ -1,102 +1,64 @@
-// netlify/functions/alipay-create.js
-const { MongoClient } = require("mongodb");
-const { nanoid } = require("nanoid");
-const { AlipaySdk, AlipayFormData } = require("alipay-sdk");
+// netlify/functions/alipay-pay.js
+const { AlipaySdk } = require("alipay-sdk");
+const crypto = require("crypto");
 
-const appId = process.env.ALIPAY_APP_ID;
-const privateKey = process.env.APP_PRIVATE_KEY;
-const alipayPublicKey = process.env.ALIPAY_PUBLIC_KEY;
-const gateway = process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do";
-const baseUrl = process.env.APP_BASE_URL; // e.g. https://your-site.netlify.app
-const mongoUri = process.env.MONGO_URI;
-const mongoDbName = "tarot-station";
-
-let cachedDb = null;
-async function connectToDatabase() {
-  if (cachedDb) return cachedDb;
-  const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
-  await client.connect();
-  cachedDb = client.db(mongoDbName);
-  return cachedDb;
+// ✅ Generate unique orderId without requiring nanoid
+function generateOrderId() {
+  return 'ORDER-' + crypto.randomBytes(8).toString('hex');
 }
 
-const alipay = new AlipaySdk({
-  appId,
-  privateKey,
-  alipayPublicKey,
-  gateway,
-  signType: "RSA2",
+const alipaySdk = new AlipaySdk({
+  appId: process.env.ALIPAY_APP_ID, // your appId
+  privateKey: process.env.APP_PRIVATE_KEY, // app private key
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY, // Alipay public key
+  gateway: 'https://openapi.alipaydev.com/gateway.do', // use sandbox
 });
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
-  }
-
+export async function handler(event) {
   try {
-    const body = JSON.parse(event.body || "{}");
-    const { amount, subject, userId, passback_params } = body;
-
-    if (!amount || !subject || !userId) {
+    if (event.httpMethod !== 'POST') {
       return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "amount, subject and userId are required" }),
+        statusCode: 405,
+        body: JSON.stringify({ error: 'Method Not Allowed' }),
       };
     }
 
-    // Unique order number
-    const outTradeNo = `ORD_${userId}_${nanoid(10)}`;
-
-    // Callback URLs
-    const return_url = `${baseUrl}/alipay-return`;
-    const notify_url = `${baseUrl}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`;
-
-    // Save order in DB
-    const db = await connectToDatabase();
-    await db.collection("orders").insertOne({
-      outTradeNo,
-      amount: String(amount),
-      subject,
-      userId,
-      status: "PENDING",
-      createdAt: new Date(),
-      passback_params: passback_params || null,
-    });
-
-    // Biz content
-    const bizContent = {
-      out_trade_no: outTradeNo,
-      total_amount: String(amount),
-      subject,
-      product_code: "QUICK_WAP_WAY",
-    };
-
-    if (passback_params) {
-      bizContent.passback_params = encodeURIComponent(passback_params);
+    const { amount } = JSON.parse(event.body);
+    if (!amount) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Amount is required' }),
+      };
     }
 
-    // Prepare formData
-    const formData = new AlipayFormData();
-    formData.setMethod("get");
-    formData.addField("returnUrl", return_url);
-    formData.addField("notifyUrl", notify_url);
-    formData.addField("bizContent", bizContent);
+    const orderId = generateOrderId();
 
-    const paymentUrl = await alipay.exec("alipay.trade.wap.pay", {}, { formData });
+    const result = await alipaySdk.exec('alipay.trade.wap.pay', {
+      bizContent: {
+        out_trade_no: orderId,
+        total_amount: amount,
+        subject: `Order #${orderId}`,
+        product_code: 'QUICK_WAP_WAY',
+      },
+      returnUrl: 'https://your-app.netlify.app/payment-success',
+      notifyUrl: 'https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify',
+    });
+
+    const payUrl = alipaySdk.sdkExecute(result);
 
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentUrl, outTradeNo }),
+      body: JSON.stringify({ orderId, payUrl }),
     };
   } catch (err) {
-    console.error("alipay-create error:", err?.message || err);
+    console.error('Alipay error:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Server Error", details: err.message }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
-};
+}
+
 
 
 
