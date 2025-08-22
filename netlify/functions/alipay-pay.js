@@ -1,6 +1,6 @@
 // netlify/functions/alipay-pay.js
 const AlipaySdk = require('alipay-sdk').default;
-const AlipayFormData = require('alipay-sdk/lib/form').default;
+const { AlipayFormData } = require('alipay-sdk');
 
 exports.handler = async (event) => {
   try {
