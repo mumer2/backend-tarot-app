@@ -1,19 +1,22 @@
 // netlify/functions/alipay-notify.js
-const { MongoClient } = require('mongodb');
-const querystring = require('querystring');
-const {AlipaySdk} = require('alipay-sdk');
+const { MongoClient } = require("mongodb");
+const querystring = require("querystring");
+const {AlipaySdk} = require("alipay-sdk");
 
 const appId = process.env.ALIPAY_APP_ID;
 const privateKey = process.env.APP_PRIVATE_KEY;
 const alipayPublicKey = process.env.ALIPAY_PUBLIC_KEY;
-const gateway = process.env.ALIPAY_GATEWAY || 'https://openapi.alipay.com/gateway.do';
+const gateway = process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do";
 const mongoUri = process.env.MONGO_URI;
-const mongoDbName = 'tarot-station';
+const mongoDbName = "tarot-station";
 
 let cachedDb;
 async function connectToDatabase() {
   if (cachedDb) return cachedDb;
-  const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+  const client = new MongoClient(mongoUri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  });
   await client.connect();
   cachedDb = client.db(mongoDbName);
   return cachedDb;
@@ -24,23 +27,23 @@ const alipay = new AlipaySdk({
   privateKey,
   alipayPublicKey,
   gateway,
-  signType: 'RSA2',
+  signType: "RSA2",
 });
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  // Alipay sends application/x-www-form-urlencoded body
-  const params = querystring.parse(event.body || '');
+  // Alipay sends application/x-www-form-urlencoded
+  const params = querystring.parse(event.body || "");
 
   try {
-    // Verify signature
+    // ✅ Verify signature
     const valid = alipay.checkNotifySign(params);
     if (!valid) {
-      console.error('❌ Invalid Alipay signature', params);
-      return { statusCode: 400, body: 'failure' };
+      console.error("❌ Invalid Alipay signature", params);
+      return { statusCode: 400, body: "failure" };
     }
 
     const {
@@ -52,24 +55,24 @@ exports.handler = async (event) => {
       passback_params,
     } = params;
 
-    // Only treat success statuses as paid
-    if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
+    // ✅ Handle successful payments
+    if (tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED") {
       try {
         const db = await connectToDatabase();
-        const wallets = db.collection('wallets');
-        const recharges = db.collection('wallet_history');
-        const orders = db.collection('orders');
+        const wallets = db.collection("wallets");
+        const recharges = db.collection("wallet_history");
+        const orders = db.collection("orders");
 
-        // Try to extract userId from outTradeNo (we created as ORD_<userId>_<random>)
-        let userId = 'unknown_user';
-        if (typeof outTradeNo === 'string' && outTradeNo.startsWith('ORD_')) {
-          const parts = outTradeNo.split('_');
+        // Try to extract userId from outTradeNo (e.g. "ORD_<userId>_<random>")
+        let userId = "unknown_user";
+        if (typeof outTradeNo === "string" && outTradeNo.startsWith("ORD_")) {
+          const parts = outTradeNo.split("_");
           if (parts.length >= 3) {
             userId = parts[1];
           }
         }
 
-        const amount = parseFloat(totalAmount || '0');
+        const amount = parseFloat(totalAmount || "0");
 
         // Update wallet balance
         await wallets.updateOne(
@@ -82,13 +85,13 @@ exports.handler = async (event) => {
         await recharges.insertOne({
           userId,
           amount,
-          method: 'Alipay',
+          method: "Alipay",
           timestamp: new Date(),
           tradeNo,
           outTradeNo,
           buyer,
           passback_params: passback_params || null,
-          status: 'completed',
+          status: "completed",
         });
 
         // Update order status as PAID
@@ -96,7 +99,7 @@ exports.handler = async (event) => {
           { outTradeNo },
           {
             $set: {
-              status: 'PAID',
+              status: "PAID",
               tradeNo,
               totalAmount: amount,
               buyer,
@@ -107,31 +110,30 @@ exports.handler = async (event) => {
 
         console.log(`✅ Alipay payment recorded for user ${userId}: +${amount}`);
       } catch (err) {
-        console.error('❌ Database error in notify:', err);
-        // Return 200 with 'failure' to prompt Alipay retry (or return failure per preferences).
-        return { statusCode: 200, body: 'failure' };
+        console.error("❌ Database error in notify:", err);
+        // Return failure to let Alipay retry later
+        return { statusCode: 200, body: "failure" };
       }
 
-      // MUST return exact text 'success' for Alipay to stop retries
-      return { statusCode: 200, body: 'success' };
+      // ✅ MUST return 'success' for Alipay to stop retrying
+      return { statusCode: 200, body: "success" };
     }
 
-    // For other trade statuses, update order and return success
+    // Handle non-success statuses
     try {
       const db = await connectToDatabase();
-      await db.collection('orders').updateOne(
+      await db.collection("orders").updateOne(
         { outTradeNo },
-        { $set: { status: tradeStatus || 'UNKNOWN', updatedAt: new Date() } }
+        { $set: { status: tradeStatus || "UNKNOWN", updatedAt: new Date() } }
       );
     } catch (e) {
-      console.error('Error updating order for non-success status', e);
+      console.error("Error updating order for non-success status", e);
     }
 
-    return { statusCode: 200, body: 'success' };
+    return { statusCode: 200, body: "success" };
   } catch (err) {
-    console.error('Notify handler error', err);
-    // Return 200 so Alipay may retry the notify (common pattern)
-    return { statusCode: 200, body: 'failure' };
+    console.error("Notify handler error", err);
+    return { statusCode: 200, body: "failure" }; // tell Alipay to retry
   }
 };
 

@@ -1,15 +1,15 @@
 // netlify/functions/alipay-create.js
-const { MongoClient } = require('mongodb');
-const { nanoid } = require('nanoid');
-const {AlipaySdk} = require('alipay-sdk');
+const { MongoClient } = require("mongodb");
+const { nanoid } = require("nanoid");
+const AlipaySdk = require("alipay-sdk").default;
 
 const appId = process.env.ALIPAY_APP_ID;
 const privateKey = process.env.APP_PRIVATE_KEY;
 const alipayPublicKey = process.env.ALIPAY_PUBLIC_KEY;
-const gateway = process.env.ALIPAY_GATEWAY || 'https://openapi.alipay.com/gateway.do';
+const gateway = process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do";
 const baseUrl = process.env.APP_BASE_URL; // e.g. https://your-site.netlify.app
 const mongoUri = process.env.MONGO_URI;
-const mongoDbName = 'tarot-station';
+const mongoDbName = "tarot-station";
 
 let cachedDb = null;
 async function connectToDatabase() {
@@ -25,68 +25,70 @@ const alipay = new AlipaySdk({
   privateKey,
   alipayPublicKey,
   gateway,
-  signType: 'RSA2',
+  signType: "RSA2",
 });
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
   }
 
   try {
-    const body = JSON.parse(event.body || '{}');
+    const body = JSON.parse(event.body || "{}");
     const { amount, subject, userId, passback_params } = body;
 
     if (!amount || !subject || !userId) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'amount, subject and userId are required' }) };
+      return { statusCode: 400, body: JSON.stringify({ error: "amount, subject and userId are required" }) };
     }
 
-    // Create a deterministic outTradeNo: ORD_<userId>_<random>
+    // Unique order number
     const outTradeNo = `ORD_${userId}_${nanoid(10)}`;
 
-    // return and notify URLs (notify must be publicly reachable)
-    const return_url = `${baseUrl}/alipay-return`; // optional front-end return page
+    // Callback URLs
+    const return_url = `${baseUrl}/alipay-return`;
     const notify_url = `https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`;
 
-    // Save order as PENDING in DB
+    // Save order in DB
     const db = await connectToDatabase();
-    await db.collection('orders').insertOne({
+    await db.collection("orders").insertOne({
       outTradeNo,
       amount: String(amount),
       subject,
       userId,
-      status: 'PENDING',
+      status: "PENDING",
       createdAt: new Date(),
       passback_params: passback_params || null,
     });
 
-    // Build bizContent; passback_params must be URL-safe and sent as string (optional)
+    // Biz content
     const bizContent = {
       out_trade_no: outTradeNo,
       total_amount: String(amount),
       subject,
-      product_code: 'QUICK_WAP_WAY',
+      product_code: "QUICK_WAP_WAY",
     };
 
-    // If the caller provided passback_params, include it (Alipay will return it in notify)
-    const method = 'alipay.trade.wap.pay';
-    const formData = {
-      return_url,
-      notify_url,
-      bizContent,
-    };
+    if (passback_params) {
+      bizContent.passback_params = encodeURIComponent(passback_params);
+    }
 
-    // For alipay-sdk v4: exec returns the redirect URL when method:'GET'
-    const paymentUrl = await alipay.exec(method, formData, { method: 'GET' });
+    // Prepare formData
+    const formData = new alipay.FormData();
+    formData.setMethod("get");
+    formData.addField("returnUrl", return_url);
+    formData.addField("notifyUrl", notify_url);
+    formData.addField("bizContent", bizContent);
+
+    const paymentUrl = await alipay.exec("alipay.trade.wap.pay", {}, { formData });
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paymentUrl, outTradeNo }),
     };
   } catch (err) {
-    console.error('alipay-create error', err);
-    return { statusCode: 500, body: JSON.stringify({ error: 'Server Error' }) };
+    console.error("alipay-create error:", err?.message || err);
+    return { statusCode: 500, body: JSON.stringify({ error: "Server Error", details: err.message }) };
   }
 };
 
