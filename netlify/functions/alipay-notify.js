@@ -1,5 +1,5 @@
 // netlify/functions/alipay-notify.js
-const AlipaySdk = require("alipay-sdk");
+const { AlipaySdk } = require("alipay-sdk");
 const qs = require("qs");
 
 const alipay = new AlipaySdk({
