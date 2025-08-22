@@ -58,7 +58,7 @@ exports.handler = async (event) => {
     };
 
     // Generate payment URL
-    const url = await alipay.exec("alipay.trade.wap.pay", params, {
+    const url = await alipay.exec("alipay.trade.app.pay", params, {
       method: "GET",
       return_url: "https://successscreen.netlify.app/success.html",
       notify_url:
