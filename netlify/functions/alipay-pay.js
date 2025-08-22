@@ -1,71 +1,53 @@
 // netlify/functions/alipay-pay.js
-const { AlipaySdk } = require("alipay-sdk");
-
-const alipay = new AlipaySdk({
-  appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.APP_PRIVATE_KEY, // ✅ PKCS#8 string with \n
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do",
-  signType: "RSA2",
-});
-
-// Helper: CORS wrapper
-function cors(body, status = 200, contentType = "application/json") {
-  return {
-    statusCode: status,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Content-Type": contentType,
-    },
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  };
-}
+const AlipaySdk = require('alipay-sdk').default;
+const AlipayFormData = require('alipay-sdk/lib/form').default;
 
 exports.handler = async (event) => {
-  if (event.httpMethod === "OPTIONS") return cors("");
-
   try {
-    // Get payment info from request
-    const { amount = "9.99", subject = "Tarot Reading" } =
-      event.httpMethod === "POST"
-        ? JSON.parse(event.body || "{}")
-        : event.queryStringParameters || {};
+    const body = JSON.parse(event.body);
+    const { amount, subject, userId } = body;
 
-    const outTradeNo = `ORDER_${Date.now()}`;
-
-    const params = {
-      method: "alipay.trade.wap.pay", // ✅ WAP/mobile payment
-      return_url: "https://successscreen.netlify.app/success.html",
-      notify_url: "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
-      biz_content: {
-        out_trade_no: outTradeNo,
-        product_code: "QUICK_WAP_WAY",
-        total_amount: String(amount),
-        subject,
-        quit_url: "https://successscreen.netlify.app/pay/cancel",
-      },
-    };
-
-    let url;
-
-    // Use pageExecute to generate payment URL
-    if (typeof alipay.pageExecute === "function") {
-      const r = await alipay.pageExecute(params, { method: "GET" });
-      url = typeof r === "string" ? r : r?.url;
-    } else {
-      // fallback (should not be needed with latest SDK)
-      const signedQuery = await alipay.exec("alipay.trade.wap.pay", params);
-      url = `${alipay.config.gateway}?${signedQuery}`;
+    if (!amount || !subject || !userId) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Missing parameters" })
+      };
     }
 
-    if (!url) throw new Error("Failed to build Alipay URL");
+    const alipaySdk = new AlipaySdk({
+      appId: process.env.ALIPAY_APP_ID,
+      privateKey: process.env.ALIPAY_PRIVATE_KEY,
+      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+    });
 
-    return cors({ url, out_trade_no: outTradeNo });
+    const formData = new AlipayFormData();
+    formData.setMethod('get');
+
+    // ✅ Correct method: alipay.trade.page.pay
+    formData.addField('method', 'alipay.trade.page.pay');
+    formData.addField('returnUrl', 'mytarot://pay/success');
+    formData.addField('notifyUrl', 'https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify');
+
+    formData.addField('bizContent', {
+      out_trade_no: Date.now().toString(), // unique order ID
+      product_code: 'FAST_INSTANT_TRADE_PAY',
+      total_amount: amount,
+      subject,
+    });
+
+    const result = await alipaySdk.exec('alipay.trade.page.pay', {}, { formData });
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ url: result })
+    };
+
   } catch (err) {
-    console.error("❌ create-order error:", err);
-    return cors({ error: String(err?.message || err) }, 500);
+    console.error("Alipay error:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message })
+    };
   }
 };
 

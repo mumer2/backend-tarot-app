@@ -1,64 +1,52 @@
-// netlify/functions/alipay-notify.js
-const { AlipaySdk } = require("alipay-sdk");
-const qs = require("qs");
+// functions/alipay-pay.js
+const AlipaySdk = require("alipay-sdk").default;
+const crypto = require("crypto");
 
-const alipay = new AlipaySdk({
+const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.APP_PRIVATE_KEY, // PKCS#8 format
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do",
+  privateKey: process.env.ALIPAY_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
+  gateway: "https://openapi.alipaydev.com/gateway.do", // ✅ sandbox
+  timeout: 5000,
   signType: "RSA2",
 });
 
-// Simple plain text response helper
-function textResponse(body, status = 200) {
-  return {
-    statusCode: status,
-    headers: {
-      "Content-Type": "text/plain",
-      "Access-Control-Allow-Origin": "*",
-    },
-    body,
-  };
-}
-
 exports.handler = async (event) => {
   try {
-    // Alipay sends application/x-www-form-urlencoded
-    const contentType = event.headers["content-type"] || event.headers["Content-Type"] || "";
-    const isForm = contentType.includes("application/x-www-form-urlencoded");
+    const { amount, subject, userId } = JSON.parse(event.body);
 
-    const bodyString = event.isBase64Encoded
-      ? Buffer.from(event.body || "", "base64").toString("utf8")
-      : event.body || "";
-
-    // Parse payload
-    const payload = isForm ? qs.parse(bodyString) : JSON.parse(bodyString || "{}");
-
-    // ✅ Verify Alipay signature
-    const isValid = alipay.checkNotifySign(payload);
-
-    if (!isValid) {
-      console.warn("❌ Invalid Alipay notify sign:", payload);
-      return textResponse("invalid sign", 400);
+    if (!amount || !subject || !userId) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Missing parameters" }),
+      };
     }
 
-    const tradeStatus = payload.trade_status;
-    const outTradeNo = payload.out_trade_no;
+    // ✅ use correct API method
+    const result = await alipaySdk.exec("alipay.trade.page.pay", {
+      bizContent: {
+        out_trade_no: "ORDER_" + Date.now(),
+        product_code: "FAST_INSTANT_TRADE_PAY",
+        total_amount: amount,
+        subject: subject,
+      },
+      return_url: "mytarot://pay/success",
+      notify_url: "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
+    });
 
-    // ✅ Update your database/order system
-    if (tradeStatus === "TRADE_SUCCESS" || tradeStatus === "TRADE_FINISHED") {
-      console.log("✅ Payment success:", outTradeNo);
-      // TODO: mark order as paid in your DB
-    } else {
-      console.log("ℹ️ Notify status:", tradeStatus, "for order:", outTradeNo);
-    }
+    // ✅ construct redirect URL manually
+    const payUrl = `https://openapi.alipaydev.com/gateway.do?${result}`;
 
-    // ✅ Alipay requires plain 'success' response
-    return textResponse("success");
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ url: payUrl }),
+    };
   } catch (err) {
-    console.error("❌ notify error:", err);
-    return textResponse("error", 500);
+    console.error("Alipay error:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message }),
+    };
   }
 };
 
