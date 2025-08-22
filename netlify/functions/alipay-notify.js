@@ -1,3 +1,4 @@
+// netlify/functions/alipay-notify.js
 const { AlipaySdk } = require("alipay-sdk");
 const { MongoClient } = require("mongodb");
 
@@ -5,13 +6,9 @@ exports.handler = async (event) => {
   try {
     if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
-    const body = event.body;
-    const params = new URLSearchParams(body);
-
+    const params = new URLSearchParams(event.body);
     const notifyData = {};
-    for (const [key, value] of params.entries()) {
-      notifyData[key] = value;
-    }
+    for (const [key, value] of params.entries()) notifyData[key] = value;
 
     console.log("🔔 Alipay Notify Data:", notifyData);
 
@@ -36,20 +33,16 @@ exports.handler = async (event) => {
         const client = new MongoClient(process.env.MONGO_URI);
         await client.connect();
         const db = client.db("tarot-station");
-
         await db.collection("wallets").updateOne(
           { userId },
           { $inc: { balance: amount }, $setOnInsert: { createdAt: new Date() } },
           { upsert: true }
         );
-
-        console.log(`💰 Wallet updated for ${userId}: +${amount}`);
         await client.close();
+        console.log(`💰 Wallet updated for ${userId}: +${amount}`);
       } catch (dbErr) {
         console.error("❌ MongoDB Error:", dbErr);
       }
-
-      return { statusCode: 200, body: "success" };
     }
 
     return { statusCode: 200, body: "success" };
