@@ -1,4 +1,4 @@
-const AlipaySdk = require("alipay-sdk").default; // ✅ fix import
+const {AlipaySdk} = require("alipay-sdk").default; // ✅ fix import
 
 const alipay = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
