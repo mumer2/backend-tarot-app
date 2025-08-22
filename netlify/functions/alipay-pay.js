@@ -1,13 +1,14 @@
 // netlify/functions/alipay-pay.js
-const {AlipaySdk} = require("alipay-sdk"); // ✅ FIXED import
+const { AlipaySdk } = require("alipay-sdk");
 const crypto = require("crypto");
 
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
   privateKey: process.env.APP_PRIVATE_KEY,
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: "https://openapi.alipaydev.com/gateway.do", // sandbox gateway
-  signType: "RSA2",
+  gateway: "https://openapi.alipaydev.com/gateway.do", // sandbox
+  timeout: 5000,
+  camelcase: true,
 });
 
 exports.handler = async (event) => {
@@ -19,32 +20,35 @@ exports.handler = async (event) => {
       };
     }
 
-    const { amount, userId } = JSON.parse(event.body);
+    const body = JSON.parse(event.body);
+    const { userId, amount, orderId } = body;
 
-    if (!amount || !userId) {
+    if (!userId || !amount || !orderId) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Amount and userId required" }),
+        body: JSON.stringify({ error: "Missing required params" }),
       };
     }
 
-    const bizContent = {
-      out_trade_no: crypto.randomBytes(16).toString("hex"),
-      product_code: "QUICK_WAP_WAY",
-      total_amount: amount.toString(),
-      subject: "Tarot Station Wallet Recharge",
-      passback_params: userId, // ✅ attach userId so notify can use it
-    };
-
-    const url = await alipaySdk.exec("alipay.trade.wap.pay", {
-      notifyUrl: `${process.env.URL}https://backend-tarot-app.netlify.app//.netlify/functions/alipay-notify`,
-      returnUrl: `${process.env.URL}/payment-success`,
-      bizContent: JSON.stringify(bizContent), // ✅ must be JSON string
+    // ✅ must pass a plain object (NOT JSON.stringify)
+    const result = await alipaySdk.exec("alipay.trade.page.pay", {
+      bizContent: {
+        out_trade_no: orderId,
+        product_code: "FAST_INSTANT_TRADE_PAY",
+        total_amount: String(amount),
+        subject: `Order ${orderId}`,
+        passback_params: userId, // for notify
+      },
+      returnUrl: "https://yourdomain.com/payment-success",
+      notifyUrl: "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
     });
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ paymentUrl: url }),
+      body: JSON.stringify({
+        success: true,
+        payUrl: result, // redirect user to this URL
+      }),
     };
   } catch (err) {
     console.error("Alipay Pay Error:", err);
@@ -54,6 +58,8 @@ exports.handler = async (event) => {
     };
   }
 };
+
+
 
 
 
