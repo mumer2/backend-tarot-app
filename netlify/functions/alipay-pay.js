@@ -1,6 +1,5 @@
 // netlify/functions/create-order.js
-import AlipaySdk from "alipay-sdk";
-import qs from "qs";
+const AlipaySdk = require('alipay-sdk');
 
 const alipay = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
