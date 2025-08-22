@@ -12,10 +12,12 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing amount or userId" }) };
     }
 
-    // Dynamically import AlipaySdk (ESM module)
-    const { default: AlipaySdk } = await import("alipay-sdk");
+    // ESM dynamic import
+    const alipayModule = await import("alipay-sdk");
+    const AlipaySdk = alipayModule.default; // get default export
 
-    const alipaySdk = new AlipaySdk({
+    // Initialize the SDK (call as function, not constructor)
+    const alipaySdk = AlipaySdk({
       appId: process.env.ALIPAY_APP_ID,
       privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
       alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
@@ -45,6 +47,7 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
 
 
 
