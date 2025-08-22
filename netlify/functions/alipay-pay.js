@@ -40,7 +40,7 @@ exports.handler = async (event) => {
 
     // ✅ Correct exec call
     const url = await alipaySdk.exec("alipay.trade.wap.pay", {
-      notifyUrl: `${process.env.URL}/.netlify/functions/alipay-notify`,
+      notifyUrl: `${process.env.URL}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`,
       returnUrl: `${process.env.URL}/payment-success`,
       bizContent, // pass as object
     });
