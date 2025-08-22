@@ -6,7 +6,7 @@ const alipay = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
   privateKey: process.env.APP_PRIVATE_KEY, // PKCS#8 string with \n
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do",
+  gateway: "https://openapi.alipaydev.com/gateway.do",
   signType: "RSA2",
 });
 
