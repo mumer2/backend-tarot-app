@@ -1,24 +1,26 @@
 // netlify/functions/alipay-notify.js
 export const handler = async (event) => {
   try {
-    // ✅ Alipay sends POST with form-encoded body
+    // ✅ Only accept POST
     if (event.httpMethod !== "POST") {
       return { statusCode: 405, body: "Method Not Allowed" };
     }
 
+    // ✅ Alipay sends POST form-encoded data
     const body = event.body;
     const params = new URLSearchParams(body);
 
-    // ✅ Dynamic import for Netlify (ESM safe)
+    // ✅ Dynamic import (works on Netlify with ESM)
     const { default: AlipaySdk } = await import("alipay-sdk");
 
     const alipaySdk = new AlipaySdk({
       appId: process.env.ALIPAY_APP_ID,
       privateKey: process.env.APP_PRIVATE_KEY,
       alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+      signType: "RSA2",
     });
 
-    // Convert form-data to object
+    // Convert form-data into object
     const notifyData = {};
     for (const [key, value] of params.entries()) {
       notifyData[key] = value;
@@ -28,19 +30,18 @@ export const handler = async (event) => {
 
     // ✅ Verify signature
     const isVerified = alipaySdk.checkNotifySign(notifyData);
-
     if (!isVerified) {
-      console.error("❌ Invalid signature");
-      return { statusCode: 400, body: "fail" }; // must return fail
+      console.error("❌ Invalid signature, ignoring callback");
+      return { statusCode: 400, body: "fail" };
     }
 
-    // ✅ Payment succeeded
+    // ✅ Process successful payment
     if (notifyData.trade_status === "TRADE_SUCCESS") {
-      const outTradeNo = notifyData.out_trade_no; // our order id
+      const outTradeNo = notifyData.out_trade_no; // our orderId
       const totalAmount = parseFloat(notifyData.total_amount);
       const userId = notifyData.passback_params || null;
 
-      console.log("✅ Payment Success:", {
+      console.log("✅ Payment Confirmed:", {
         orderId: outTradeNo,
         amount: totalAmount,
         userId,
@@ -49,7 +50,7 @@ export const handler = async (event) => {
       // ✅ Update MongoDB Wallet Balance
       try {
         const { MongoClient } = await import("mongodb");
-        const client = new MongoClient(process.env.MONGODB_URI);
+        const client = new MongoClient(process.env.MONGO_URI);
         await client.connect();
 
         const db = client.db("tarot-station");
@@ -66,13 +67,13 @@ export const handler = async (event) => {
         await client.close();
       } catch (dbErr) {
         console.error("❌ MongoDB Error:", dbErr);
-        // Even if DB fails, must return success to stop Alipay retries
+        // ⚠️ Still return success so Alipay doesn’t retry
       }
 
       return { statusCode: 200, body: "success" };
     }
 
-    // ✅ Alipay requires "success" even if status is not TRADE_SUCCESS
+    // ✅ Alipay requires "success" even for other statuses (to stop retries)
     return { statusCode: 200, body: "success" };
   } catch (err) {
     console.error("❌ Notify Error:", err);
