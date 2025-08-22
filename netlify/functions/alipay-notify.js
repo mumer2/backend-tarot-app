@@ -1,32 +1,37 @@
 // netlify/functions/alipay-notify.js
 export const handler = async (event) => {
   try {
-    // Alipay sends POST with form-encoded body
+    // ✅ Alipay sends POST with form-encoded body
+    if (event.httpMethod !== "POST") {
+      return { statusCode: 405, body: "Method Not Allowed" };
+    }
+
     const body = event.body;
     const params = new URLSearchParams(body);
 
     // ✅ Dynamic import for Netlify (ESM safe)
     const { default: AlipaySdk } = await import("alipay-sdk");
+
     const alipaySdk = new AlipaySdk({
       appId: process.env.ALIPAY_APP_ID,
       privateKey: process.env.APP_PRIVATE_KEY,
       alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
     });
 
-    // Convert params to object
+    // Convert form-data to object
     const notifyData = {};
     for (const [key, value] of params.entries()) {
       notifyData[key] = value;
     }
 
+    console.log("🔔 Alipay Notify Data:", notifyData);
+
     // ✅ Verify signature
     const isVerified = alipaySdk.checkNotifySign(notifyData);
 
     if (!isVerified) {
-      return {
-        statusCode: 400,
-        body: "fail", // ❌ Signature invalid
-      };
+      console.error("❌ Invalid signature");
+      return { statusCode: 400, body: "fail" }; // must return fail
     }
 
     // ✅ Payment succeeded
@@ -35,44 +40,48 @@ export const handler = async (event) => {
       const totalAmount = parseFloat(notifyData.total_amount);
       const userId = notifyData.passback_params || null;
 
-      console.log("✅ Payment success:", {
+      console.log("✅ Payment Success:", {
         orderId: outTradeNo,
         amount: totalAmount,
         userId,
       });
 
-      // TODO: Update MongoDB or your DB with new balance
-      // Example:
-      /*
-      const { MongoClient } = await import("mongodb");
-      const client = new MongoClient(process.env.MONGODB_URI);
-      await client.connect();
-      const db = client.db("tarot-station");
-      await db.collection("wallets").updateOne(
-        { userId },
-        { $inc: { balance: totalAmount } },
-        { upsert: true }
-      );
-      */
+      // ✅ Update MongoDB Wallet Balance
+      try {
+        const { MongoClient } = await import("mongodb");
+        const client = new MongoClient(process.env.MONGODB_URI);
+        await client.connect();
 
-      return {
-        statusCode: 200,
-        body: "success", // ✅ Must return "success"
-      };
+        const db = client.db("tarot-station");
+        await db.collection("wallets").updateOne(
+          { userId },
+          {
+            $inc: { balance: totalAmount },
+            $setOnInsert: { createdAt: new Date() },
+          },
+          { upsert: true }
+        );
+
+        console.log(`💰 Wallet updated for user ${userId}, +${totalAmount}`);
+        await client.close();
+      } catch (dbErr) {
+        console.error("❌ MongoDB Error:", dbErr);
+        // Even if DB fails, must return success to stop Alipay retries
+      }
+
+      return { statusCode: 200, body: "success" };
     }
 
-    return {
-      statusCode: 200,
-      body: "success", // Even if not TRADE_SUCCESS, must return success to stop retries
-    };
+    // ✅ Alipay requires "success" even if status is not TRADE_SUCCESS
+    return { statusCode: 200, body: "success" };
   } catch (err) {
-    console.error("❌ Notify error:", err);
-    return {
-      statusCode: 500,
-      body: "fail",
-    };
+    console.error("❌ Notify Error:", err);
+    return { statusCode: 500, body: "fail" };
   }
 };
+
+
+
 
 
 

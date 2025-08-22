@@ -1,16 +1,16 @@
 // netlify/functions/alipay-pay.js
-import AlipaySdk from "alipay-sdk";
-import crypto from "crypto";
+const {AlipaySdk} = require("alipay-sdk"); // ✅ correct import for Netlify
+const crypto = require("crypto");
 
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
   privateKey: process.env.APP_PRIVATE_KEY,
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: "https://openapi.alipaydev.com/gateway.do", // sandbox, switch to live gateway later
+  gateway: "https://openapi.alipaydev.com/gateway.do", // sandbox gateway
   signType: "RSA2",
 });
 
-export async function handler(event) {
+exports.handler = async (event) => {
   try {
     if (event.httpMethod !== "POST") {
       return {
@@ -29,15 +29,16 @@ export async function handler(event) {
     }
 
     const bizContent = {
-      out_trade_no: crypto.randomBytes(16).toString("hex"), // unique order ID
+      out_trade_no: crypto.randomBytes(16).toString("hex"),
       product_code: "QUICK_WAP_WAY",
       total_amount: amount.toString(),
       subject: "Tarot Station Wallet Recharge",
-      passback_params: userId, // ✅ attach userId so notify handler knows who to credit
+      passback_params: userId, // ✅ attach userId for notify
     };
 
     const url = await alipaySdk.exec("alipay.trade.wap.pay", {
-      notifyUrl: `${process.env.URL}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`, // ✅ callback
+      notifyUrl: `${process.env.URL}https://backend-tarot-app.netlify.app//.netlify/functions/alipay-notify`,
+      returnUrl: `${process.env.URL}/payment-success`,
       bizContent: JSON.stringify(bizContent),
     });
 
@@ -52,8 +53,7 @@ export async function handler(event) {
       body: JSON.stringify({ error: err.message }),
     };
   }
-}
-
+};
 
 
 
