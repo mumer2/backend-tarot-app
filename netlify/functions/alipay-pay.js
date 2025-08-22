@@ -1,6 +1,7 @@
 // netlify/functions/alipay-pay.js
-const {AlipaySdk} = require("alipay-sdk");
+const { AlipaySdk } = require("alipay-sdk");
 
+// Initialize Alipay SDK
 const alipay = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
   privateKey: process.env.APP_PRIVATE_KEY, // PKCS#8 string with \n
@@ -32,13 +33,17 @@ exports.handler = async (event) => {
         ? JSON.parse(event.body || "{}")
         : event.queryStringParameters || {};
 
-    if (!userId) {
-      return cors({ error: "Missing userId" }, 400);
-    }
+    if (!userId) return cors({ error: "Missing userId" }, 400);
 
     const outTradeNo = `ORDER_${Date.now()}`;
 
-    // Only business fields inside bizContent
+    // Set dynamic expiration 30 minutes from now
+    const expireDate = new Date(Date.now() + 30 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace("T", " ");
+
+    // WAP payment parameters
     const params = {
       method: "alipay.trade.wap.pay",
       bizContent: {
@@ -47,11 +52,12 @@ exports.handler = async (event) => {
         total_amount: String(amount),
         subject,
         quit_url: "https://successscreen.netlify.app/cancel.html",
-        passback_params: userId, // ✅ returned in notify
+        time_expire: expireDate,
+        passback_params: encodeURIComponent(userId),
       },
     };
 
-    // Add return_url + notify_url in exec options
+    // Generate payment URL
     const url = await alipay.exec("alipay.trade.wap.pay", params, {
       method: "GET",
       return_url: "https://successscreen.netlify.app/success.html",
@@ -59,7 +65,12 @@ exports.handler = async (event) => {
         "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
     });
 
-    if (!url) throw new Error("Failed to build Alipay URL");
+    // Detect if Alipay returned HTML instead of a URL (permission issue)
+    if (!url || url.startsWith("<!DOCTYPE")) {
+      throw new Error(
+        "Alipay returned HTML instead of a payment URL. Check app permissions and credentials."
+      );
+    }
 
     return cors({ url, out_trade_no: outTradeNo });
   } catch (err) {
@@ -67,6 +78,7 @@ exports.handler = async (event) => {
     return cors({ error: String(err?.message || err) }, 500);
   }
 };
+
 
 
 
