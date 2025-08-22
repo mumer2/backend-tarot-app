@@ -1,6 +1,5 @@
 // netlify/functions/alipay-pay.js
-const { AlipaySdk } = require("alipay-sdk");
-const crypto =require("crypto");
+const AlipaySdk = require('alipay-sdk').default;
 
 export const handler = async (event) => {
   try {
