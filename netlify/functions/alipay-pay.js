@@ -1,53 +1,59 @@
 // netlify/functions/alipay-pay.js
 const { AlipaySdk } = require("alipay-sdk");
-const qs = require("qs");
+const crypto =require("crypto");
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
+    if (event.httpMethod !== 'POST') {
+      return { statusCode: 405, body: 'Method Not Allowed' };
     }
 
     const { amount, userId } = JSON.parse(event.body);
-
     if (!amount || !userId) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Missing amount or userId" }) };
+      return { statusCode: 400, body: JSON.stringify({ error: 'Missing amount or userId' }) };
     }
 
     const alipaySdk = new AlipaySdk({
       appId: process.env.ALIPAY_APP_ID,
-      privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
-      signType: "RSA2",
+      privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
+      signType: 'RSA2',
       timeout: 30000,
-      gateway: process.env.ALIPAY_SANDBOX === "true"
-        ? "https://openapi.alipaydev.com/gateway.do" // Sandbox
-        : "https://openapi.alipay.com/gateway.do",    // Production
+      gateway: process.env.ALIPAY_SANDBOX === 'true'
+        ? 'https://openapi.alipaydev.com/gateway.do'
+        : 'https://openapi.alipay.com/gateway.do',
     });
 
-    const orderId = "order_" + Date.now();
+    const orderId = `order_${Date.now()}`;
 
-    // Create Alipay app order string
-    const orderString = await alipaySdk.exec("alipay.trade.app.pay", {
-      bizContent: {
-        subject: "Tarot Coins Recharge",
-        out_trade_no: orderId,
-        total_amount: amount.toFixed(2),
-        product_code: "QUICK_MSECURITY_PAY",
-        passback_params: encodeURIComponent(userId),
-      },
-      notifyUrl: process.env.ALIPAY_NOTIFY_URL || "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
+    // Prepare bizContent
+    const bizContent = {
+      subject: 'Tarot Coins Recharge',
+      out_trade_no: orderId,
+      total_amount: parseFloat(amount).toFixed(2),
+      product_code: 'QUICK_MSECURITY_PAY',
+      passback_params: encodeURIComponent(userId),
+    };
+
+    // Call Alipay SDK to get order string
+    const orderInfo = await alipaySdk.exec('alipay.trade.app.pay', {
+      bizContent,
+      notifyUrl: "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
+    }).catch((err) => {
+      console.error('Alipay exec error:', err);
+      throw new Error('Alipay request failed. Check your appId, keys, and permissions.');
     });
 
+    // Return valid order string
     return {
       statusCode: 200,
-      body: JSON.stringify({ orderString, orderId }),
+      body: JSON.stringify({ orderInfo, orderId }),
     };
   } catch (err) {
-    console.error("Alipay Pay Error:", err);
+    console.error('Alipay Pay Error:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message, stack: err.stack }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
 };
