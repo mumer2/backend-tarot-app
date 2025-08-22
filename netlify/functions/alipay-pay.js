@@ -1,18 +1,19 @@
-const { AlipaySdk } = require("alipay-sdk");
+// netlify/functions/alipay-pay.js
+const { AlipaySdk } = require("alipay-sdk"); // ✅ correct import
 const crypto = require("crypto");
 
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
-  gateway: "https://openapi.alipaydev.com/gateway.do",
+  privateKey: process.env.APP_PRIVATE_KEY,
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+  gateway: "https://openapi.alipaydev.com/gateway.do", // sandbox
   signType: "RSA2",
 });
 
 exports.handler = async (event) => {
   try {
     if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method not allowed" };
+      return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
     }
 
     const { amount, userId } = JSON.parse(event.body);
@@ -20,18 +21,20 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: "Amount and userId required" }) };
     }
 
+    // ✅ bizContent must be a plain object, DO NOT stringify it here
     const bizContent = {
       out_trade_no: crypto.randomBytes(16).toString("hex"),
-      total_amount: amount.toString(),
       product_code: "QUICK_WAP_WAY",
+      total_amount: amount.toString(),
       subject: "Tarot Station Wallet Recharge",
-      passback_params: encodeURIComponent(userId),
+      passback_params: userId, // used in notify callback
     };
 
+    // ✅ exec expects bizContent as object, not JSON string
     const url = await alipaySdk.exec("alipay.trade.wap.pay", {
       notifyUrl: `${process.env.URL}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`,
       returnUrl: `${process.env.URL}/payment-success`,
-      bizContent: JSON.stringify(bizContent),
+      bizContent, // ← pass object directly
     });
 
     return { statusCode: 200, body: JSON.stringify({ paymentUrl: url }) };
@@ -40,6 +43,7 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
 
 
 

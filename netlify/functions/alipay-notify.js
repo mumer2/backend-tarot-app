@@ -1,13 +1,17 @@
+// netlify/functions/alipay-notify.js
 const { AlipaySdk } = require("alipay-sdk");
 const { MongoClient } = require("mongodb");
 
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+    // ✅ Only allow POST
+    if (event.httpMethod !== "POST") {
+      return { statusCode: 405, body: "Method Not Allowed" };
+    }
 
+    // ✅ Parse form-encoded data
     const body = event.body;
     const params = new URLSearchParams(body);
-
     const notifyData = {};
     for (const [key, value] of params.entries()) {
       notifyData[key] = value;
@@ -15,6 +19,7 @@ exports.handler = async (event) => {
 
     console.log("🔔 Alipay Notify Data:", notifyData);
 
+    // ✅ Initialize Alipay SDK
     const alipaySdk = new AlipaySdk({
       appId: process.env.ALIPAY_APP_ID,
       privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
@@ -22,12 +27,14 @@ exports.handler = async (event) => {
       signType: "RSA2",
     });
 
+    // ✅ Verify signature
     const isVerified = alipaySdk.checkNotifySign(notifyData);
     if (!isVerified) {
       console.error("❌ Invalid signature");
       return { statusCode: 400, body: "fail" };
     }
 
+    // ✅ Process successful payment
     if (notifyData.trade_status === "TRADE_SUCCESS") {
       const userId = decodeURIComponent(notifyData.passback_params || "");
       const amount = parseFloat(notifyData.total_amount);
@@ -39,7 +46,10 @@ exports.handler = async (event) => {
 
         await db.collection("wallets").updateOne(
           { userId },
-          { $inc: { balance: amount }, $setOnInsert: { createdAt: new Date() } },
+          {
+            $inc: { balance: amount },
+            $setOnInsert: { createdAt: new Date() },
+          },
           { upsert: true }
         );
 
@@ -47,17 +57,20 @@ exports.handler = async (event) => {
         await client.close();
       } catch (dbErr) {
         console.error("❌ MongoDB Error:", dbErr);
+        // ⚠️ Still return success to stop Alipay retries
       }
 
       return { statusCode: 200, body: "success" };
     }
 
+    // ✅ Return success for all other statuses to stop retries
     return { statusCode: 200, body: "success" };
   } catch (err) {
     console.error("❌ Notify Error:", err);
     return { statusCode: 500, body: "fail" };
   }
 };
+
 
 
 
