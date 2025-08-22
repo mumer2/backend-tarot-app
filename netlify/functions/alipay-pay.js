@@ -1,5 +1,5 @@
 // netlify/functions/alipay-pay.js
-const AlipaySdk = require("alipay-sdk").default;
+const {AlipaySdk} = require("alipay-sdk");
 
 const alipay = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
