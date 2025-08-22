@@ -45,7 +45,7 @@ exports.handler = async (event) => {
 
     // WAP payment parameters
     const params = {
-      method: "alipay.trade.wap.pay",
+      method: "alipay.trade.app.pay",
       bizContent: {
         out_trade_no: outTradeNo,
         product_code: "QUICK_WAP_WAY",
