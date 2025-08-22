@@ -1,99 +1,92 @@
-// netlify/functions/alipay-pay.js
-const axios = require('axios');
-const crypto = require('crypto');
+// netlify/functions/alipay-create.js
+const { MongoClient } = require('mongodb');
+const { nanoid } = require('nanoid');
+const {AlipaySdk} = require('alipay-sdk');
 
-// This function acts as your secure backend for creating an Alipay payment order.
-// DO NOT expose private keys or secrets on the client-side.
+const appId = process.env.ALIPAY_APP_ID;
+const privateKey = process.env.APP_PRIVATE_KEY;
+const alipayPublicKey = process.env.ALIPAY_PUBLIC_KEY;
+const gateway = process.env.ALIPAY_GATEWAY || 'https://openapi.alipay.com/gateway.do';
+const baseUrl = process.env.APP_BASE_URL; // e.g. https://your-site.netlify.app
+const mongoUri = process.env.MONGO_URI;
+const mongoDbName = 'tarot-station';
+
+let cachedDb = null;
+async function connectToDatabase() {
+  if (cachedDb) return cachedDb;
+  const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+  await client.connect();
+  cachedDb = client.db(mongoDbName);
+  return cachedDb;
+}
+
+const alipay = new AlipaySdk({
+  appId,
+  privateKey,
+  alipayPublicKey,
+  gateway,
+  signType: 'RSA2',
+});
+
 exports.handler = async (event) => {
-  // Check if the request method is POST
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      body: JSON.stringify({ message: 'Method Not Allowed' }),
-    };
+    return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
-  // Parse the request body
-  const { amount, subject, out_trade_no } = JSON.parse(event.body);
-
-  // --- IMPORTANT SECURITY NOTE ---
-  // In a real application, you would use a proper Alipay SDK to handle
-  // signing the request and generating the correct URL.
-  // The code below is a simplified, non-secure example to illustrate the flow.
-  // You would need to replace this with a secure SDK implementation.
-  // Example SDK: `alipay-sdk` or `alipay-sdk-node` from npm.
-
-  // Retrieve environment variables securely configured in Netlify.
-  // The names of these variables should be the same as in your Netlify settings.
-  const ALIPAY_APP_ID = process.env.ALIPAY_APP_ID;
-  const ALIPAY_GATEWAY = process.env.ALIPAY_GATEWAY;
-  const APP_PRIVATE_KEY = process.env.APP_PRIVATE_KEY; // This is highly sensitive!
-
-  if (!ALIPAY_APP_ID || !ALIPAY_GATEWAY || !APP_PRIVATE_KEY) {
-    console.error('Missing Alipay environment variables.');
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: 'Server configuration error.' }),
-    };
-  }
-  
-  // Placeholder for the business parameters required by Alipay
-  const bizContent = {
-    out_trade_no: out_trade_no, // Unique order number from your system
-    total_amount: amount,
-    subject: subject,
-    product_code: 'QUICK_MSECURITY_PAY', // Payment product code
-  };
-
-  // Construct the parameters object for the API call
-  const params = {
-    app_id: ALIPAY_APP_ID,
-    method: 'alipay.trade.app.pay',
-    charset: 'utf-8',
-    sign_type: 'RSA2', // Use RSA2 for better security
-    timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
-    version: '1.0',
-    biz_content: JSON.stringify(bizContent),
-    // You would also add a notify_url and return_url here for webhooks
-  };
-
-  // --- Simplified Signature Generation (for demonstration ONLY) ---
-  // A real SDK would handle this with proper cryptographic functions and
-  // private keys. Do not do this manually in a production app.
-  const signContent = Object.keys(params).sort().map(key => `${key}=${params[key]}`).join('&');
-  const signer = crypto.createSign('RSA-SHA256');
-  signer.update(signContent);
-  const sign = signer.sign(APP_PRIVATE_KEY, 'base64');
-  params.sign = sign;
-
-  // Build the final order string
-  const orderString = Object.keys(params).map(key => {
-    const value = params[key];
-    return `${key}=${encodeURIComponent(value)}`;
-  }).join('&');
-
-  // Placeholder for the deep link URL. A real response would be
-  // the order string that your React Native app can use to call Alipay.
-  const deepLink = `alipays://platformapi/startapp?appId=20000067&${orderString}`;
-
-  // You would typically make a POST request to the Alipay gateway here
-  // and then return the deep link from the response. For this example,
-  // we are generating the deep link directly to show the flow.
   try {
-    // A mock API response
-    // const apiResponse = await axios.post(ALIPAY_GATEWAY_URL, params);
-    
-    // Returning the generated deep link to the client
+    const body = JSON.parse(event.body || '{}');
+    const { amount, subject, userId, passback_params } = body;
+
+    if (!amount || !subject || !userId) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'amount, subject and userId are required' }) };
+    }
+
+    // Create a deterministic outTradeNo: ORD_<userId>_<random>
+    const outTradeNo = `ORD_${userId}_${nanoid(10)}`;
+
+    // return and notify URLs (notify must be publicly reachable)
+    const return_url = `${baseUrl}/alipay-return`; // optional front-end return page
+    const notify_url = `https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`;
+
+    // Save order as PENDING in DB
+    const db = await connectToDatabase();
+    await db.collection('orders').insertOne({
+      outTradeNo,
+      amount: String(amount),
+      subject,
+      userId,
+      status: 'PENDING',
+      createdAt: new Date(),
+      passback_params: passback_params || null,
+    });
+
+    // Build bizContent; passback_params must be URL-safe and sent as string (optional)
+    const bizContent = {
+      out_trade_no: outTradeNo,
+      total_amount: String(amount),
+      subject,
+      product_code: 'QUICK_WAP_WAY',
+    };
+
+    // If the caller provided passback_params, include it (Alipay will return it in notify)
+    const method = 'alipay.trade.wap.pay';
+    const formData = {
+      return_url,
+      notify_url,
+      bizContent,
+    };
+
+    // For alipay-sdk v4: exec returns the redirect URL when method:'GET'
+    const paymentUrl = await alipay.exec(method, formData, { method: 'GET' });
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ deepLink }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paymentUrl, outTradeNo }),
     };
-  } catch (error) {
-    console.error('Error creating Alipay order:', error.message);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: 'Failed to create Alipay order.' }),
-    };
+  } catch (err) {
+    console.error('alipay-create error', err);
+    return { statusCode: 500, body: JSON.stringify({ error: 'Server Error' }) };
   }
 };
 

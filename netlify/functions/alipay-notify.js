@@ -1,54 +1,140 @@
-// functions/alipay-pay.js
-const AlipaySdk = require("alipay-sdk").default;
-const crypto = require("crypto");
+// netlify/functions/alipay-notify.js
+const { MongoClient } = require('mongodb');
+const querystring = require('querystring');
+const {AlipaySdk} = require('alipay-sdk');
 
-const alipaySdk = new AlipaySdk({
-  appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.ALIPAY_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
-  gateway: "https://openapi.alipaydev.com/gateway.do", // ✅ sandbox
-  timeout: 5000,
-  signType: "RSA2",
+const appId = process.env.ALIPAY_APP_ID;
+const privateKey = process.env.APP_PRIVATE_KEY;
+const alipayPublicKey = process.env.ALIPAY_PUBLIC_KEY;
+const gateway = process.env.ALIPAY_GATEWAY || 'https://openapi.alipay.com/gateway.do';
+const mongoUri = process.env.MONGO_URI;
+const mongoDbName = 'tarot-station';
+
+let cachedDb;
+async function connectToDatabase() {
+  if (cachedDb) return cachedDb;
+  const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+  await client.connect();
+  cachedDb = client.db(mongoDbName);
+  return cachedDb;
+}
+
+const alipay = new AlipaySdk({
+  appId,
+  privateKey,
+  alipayPublicKey,
+  gateway,
+  signType: 'RSA2',
 });
 
 exports.handler = async (event) => {
-  try {
-    const { amount, subject, userId } = JSON.parse(event.body);
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
 
-    if (!amount || !subject || !userId) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing parameters" }),
-      };
+  // Alipay sends application/x-www-form-urlencoded body
+  const params = querystring.parse(event.body || '');
+
+  try {
+    // Verify signature
+    const valid = alipay.checkNotifySign(params);
+    if (!valid) {
+      console.error('❌ Invalid Alipay signature', params);
+      return { statusCode: 400, body: 'failure' };
     }
 
-    // ✅ use correct API method
-    const result = await alipaySdk.exec("alipay.trade.page.pay", {
-      bizContent: {
-        out_trade_no: "ORDER_" + Date.now(),
-        product_code: "FAST_INSTANT_TRADE_PAY",
-        total_amount: amount,
-        subject: subject,
-      },
-      return_url: "mytarot://pay/success",
-      notify_url: "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
-    });
+    const {
+      out_trade_no: outTradeNo,
+      trade_status: tradeStatus,
+      trade_no: tradeNo,
+      total_amount: totalAmount,
+      buyer_logon_id: buyer,
+      passback_params,
+    } = params;
 
-    // ✅ construct redirect URL manually
-    const payUrl = `https://openapi.alipaydev.com/gateway.do?${result}`;
+    // Only treat success statuses as paid
+    if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
+      try {
+        const db = await connectToDatabase();
+        const wallets = db.collection('wallets');
+        const recharges = db.collection('wallet_history');
+        const orders = db.collection('orders');
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ url: payUrl }),
-    };
+        // Try to extract userId from outTradeNo (we created as ORD_<userId>_<random>)
+        let userId = 'unknown_user';
+        if (typeof outTradeNo === 'string' && outTradeNo.startsWith('ORD_')) {
+          const parts = outTradeNo.split('_');
+          if (parts.length >= 3) {
+            userId = parts[1];
+          }
+        }
+
+        const amount = parseFloat(totalAmount || '0');
+
+        // Update wallet balance
+        await wallets.updateOne(
+          { userId },
+          { $inc: { balance: amount } },
+          { upsert: true }
+        );
+
+        // Save recharge history
+        await recharges.insertOne({
+          userId,
+          amount,
+          method: 'Alipay',
+          timestamp: new Date(),
+          tradeNo,
+          outTradeNo,
+          buyer,
+          passback_params: passback_params || null,
+          status: 'completed',
+        });
+
+        // Update order status as PAID
+        await orders.updateOne(
+          { outTradeNo },
+          {
+            $set: {
+              status: 'PAID',
+              tradeNo,
+              totalAmount: amount,
+              buyer,
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        console.log(`✅ Alipay payment recorded for user ${userId}: +${amount}`);
+      } catch (err) {
+        console.error('❌ Database error in notify:', err);
+        // Return 200 with 'failure' to prompt Alipay retry (or return failure per preferences).
+        return { statusCode: 200, body: 'failure' };
+      }
+
+      // MUST return exact text 'success' for Alipay to stop retries
+      return { statusCode: 200, body: 'success' };
+    }
+
+    // For other trade statuses, update order and return success
+    try {
+      const db = await connectToDatabase();
+      await db.collection('orders').updateOne(
+        { outTradeNo },
+        { $set: { status: tradeStatus || 'UNKNOWN', updatedAt: new Date() } }
+      );
+    } catch (e) {
+      console.error('Error updating order for non-success status', e);
+    }
+
+    return { statusCode: 200, body: 'success' };
   } catch (err) {
-    console.error("Alipay error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
+    console.error('Notify handler error', err);
+    // Return 200 so Alipay may retry the notify (common pattern)
+    return { statusCode: 200, body: 'failure' };
   }
 };
+
 
 
 
