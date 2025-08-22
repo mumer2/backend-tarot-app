@@ -1,7 +1,7 @@
 // netlify/functions/alipay-create.js
 const { MongoClient } = require("mongodb");
 const { nanoid } = require("nanoid");
-const AlipaySdk = require("alipay-sdk").default;
+const { AlipaySdk, AlipayFormData } = require("alipay-sdk");
 
 const appId = process.env.ALIPAY_APP_ID;
 const privateKey = process.env.APP_PRIVATE_KEY;
@@ -38,7 +38,10 @@ exports.handler = async (event) => {
     const { amount, subject, userId, passback_params } = body;
 
     if (!amount || !subject || !userId) {
-      return { statusCode: 400, body: JSON.stringify({ error: "amount, subject and userId are required" }) };
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "amount, subject and userId are required" }),
+      };
     }
 
     // Unique order number
@@ -46,7 +49,7 @@ exports.handler = async (event) => {
 
     // Callback URLs
     const return_url = `${baseUrl}/alipay-return`;
-    const notify_url = `https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`;
+    const notify_url = `${baseUrl}/.netlify/functions/alipay-notify`;
 
     // Save order in DB
     const db = await connectToDatabase();
@@ -73,7 +76,7 @@ exports.handler = async (event) => {
     }
 
     // Prepare formData
-    const formData = new alipay.FormData();
+    const formData = new AlipayFormData();
     formData.setMethod("get");
     formData.addField("returnUrl", return_url);
     formData.addField("notifyUrl", notify_url);
@@ -88,10 +91,12 @@ exports.handler = async (event) => {
     };
   } catch (err) {
     console.error("alipay-create error:", err?.message || err);
-    return { statusCode: 500, body: JSON.stringify({ error: "Server Error", details: err.message }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Server Error", details: err.message }),
+    };
   }
 };
-
 
 
 
