@@ -39,7 +39,7 @@ export const handler = async (event) => {
     const params = {
       method: "alipay.trade.wap.pay",
       return_url: process.env.RETURN_URL, // deep link or https page
-      notify_url: `${process.env.PUBLIC_BASE_URL}/.netlify/functions/alipay-notify`,
+      notify_url: `${process.env.PUBLIC_BASE_URL}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`,
       bizContent: {
         out_trade_no: outTradeNo,
         product_code: "QUICK_WAP_WAY",
