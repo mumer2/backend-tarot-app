@@ -26,23 +26,21 @@ const createSign = (params, key) => {
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
 
-// Build XML payload
+// Build XML payload (compact, no line breaks inside CDATA)
 const buildWeChatXML = (params) => {
-  return `
-<xml>
-  <appid><![CDATA[${params.appid}]]></appid>
-  <mch_id><![CDATA[${params.mch_id}]]></mch_id>
-  <nonce_str><![CDATA[${params.nonce_str}]]></nonce_str>
-  <body><![CDATA[${params.body}]]></body>
-  <out_trade_no><![CDATA[${params.out_trade_no}]]></out_trade_no>
-  <total_fee>${params.total_fee}</total_fee>
-  <spbill_create_ip><![CDATA[${params.spbill_create_ip}]]></spbill_create_ip>
-  <notify_url><![CDATA[${params.notify_url}]]></notify_url>
-  <trade_type><![CDATA[${params.trade_type}]]></trade_type>
-  <scene_info><![CDATA[${params.scene_info}]]></scene_info>
-  <sign><![CDATA[${params.sign}]]></sign>
-</xml>
-  `.trim();
+  return `<xml>
+<appid><![CDATA[${params.appid}]]></appid>
+<mch_id><![CDATA[${params.mch_id}]]></mch_id>
+<nonce_str><![CDATA[${params.nonce_str}]]></nonce_str>
+<body><![CDATA[${params.body}]]></body>
+<out_trade_no><![CDATA[${params.out_trade_no}]]></out_trade_no>
+<total_fee>${params.total_fee}</total_fee>
+<spbill_create_ip><![CDATA[${params.spbill_create_ip}]]></spbill_create_ip>
+<notify_url><![CDATA[${params.notify_url}]]></notify_url>
+<trade_type><![CDATA[${params.trade_type}]]></trade_type>
+<scene_info><![CDATA[${params.scene_info}]]></scene_info>
+<sign><![CDATA[${params.sign}]]></sign>
+</xml>`;
 };
 
 exports.handler = async (event) => {
@@ -62,11 +60,11 @@ exports.handler = async (event) => {
     const redirect_url = "https://successscreen.netlify.app/success.html";
     const trade_type = "MWEB";
 
-    // Get client IP (must be valid public IPv4)
+    // Get client IP (IPv4 only)
     const ipHeader = event.headers['x-forwarded-for'] || '';
     const ip = ipHeader.split(',')[0]?.trim() || "1.1.1.1"; // fallback valid IPv4
 
-    // H5 scene info
+    // H5 scene info (compact JSON)
     const scene_info_json = JSON.stringify({
       h5_info: {
         type: "Wap",
@@ -89,20 +87,18 @@ exports.handler = async (event) => {
     };
 
     // Generate sign
-    const sign = createSign(params, key);
-    params.sign = sign;
+    params.sign = createSign(params, key);
 
     const xmlData = buildWeChatXML(params);
     console.log("📤 XML sent to WeChat:\n", xmlData);
 
-    // Send request to WeChat
+    // Send request
     const response = await axios.post(
       "https://api.mch.weixin.qq.com/pay/unifiedorder",
       xmlData,
       { headers: { "Content-Type": "text/xml; charset=utf-8" } }
     );
 
-    // Parse XML response
     const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
     const result = parsed.xml;
 
@@ -123,10 +119,7 @@ exports.handler = async (event) => {
 
       return {
         statusCode: 200,
-        body: JSON.stringify({
-          paymentUrl: mweb_url,
-          out_trade_no
-        })
+        body: JSON.stringify({ paymentUrl: mweb_url, out_trade_no })
       };
     } else {
       return {
