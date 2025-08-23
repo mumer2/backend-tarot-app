@@ -22,13 +22,11 @@ const createSign = (params, key) => {
     .map(k => `${k}=${params[k]}`)
     .join("&");
   const stringSignTemp = `${stringA}&key=${key}`;
-  console.log("🔍 String to sign:", stringSignTemp);
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
 
 // Build XML payload (compact, no line breaks inside CDATA)
-const buildWeChatXML = (params) => {
-  return `<xml>
+const buildWeChatXML = (params) => `<xml>
 <appid><![CDATA[${params.appid}]]></appid>
 <mch_id><![CDATA[${params.mch_id}]]></mch_id>
 <nonce_str><![CDATA[${params.nonce_str}]]></nonce_str>
@@ -41,18 +39,15 @@ const buildWeChatXML = (params) => {
 <scene_info><![CDATA[${params.scene_info}]]></scene_info>
 <sign><![CDATA[${params.sign}]]></sign>
 </xml>`;
-};
 
 exports.handler = async (event) => {
   try {
     const body = JSON.parse(event.body || "{}");
-    const total_fee = body.total_fee ? Math.floor(body.total_fee) : 100; // default 1.00 CNY = 100 cents
+    const total_fee = body.total_fee ? Math.floor(body.total_fee) : 100; // 1.00 CNY default
     const userId = (body.userId || "guest").toString();
 
-    const shortUserId = userId.slice(0, 6);
-    const out_trade_no = `U${shortUserId}${Date.now().toString().slice(-10)}`;
+    const out_trade_no = `U${userId.slice(0,6)}${Date.now().toString().slice(-10)}`;
 
-    // Config
     const appid = process.env.WECHAT_APPID;
     const mch_id = process.env.WECHAT_MCH_ID;
     const key = process.env.WECHAT_API_KEY;
@@ -60,11 +55,12 @@ exports.handler = async (event) => {
     const redirect_url = "https://successscreen.netlify.app/success.html";
     const trade_type = "MWEB";
 
-    // Get client IP (IPv4 only)
+    // Force valid IPv4
     const ipHeader = event.headers['x-forwarded-for'] || '';
-    const ip = ipHeader.split(',')[0]?.trim() || "1.1.1.1"; // fallback valid IPv4
+    let ip = ipHeader.split(',')[0]?.trim() || "1.1.1.1";
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) ip = "1.1.1.1";
 
-    // H5 scene info (compact JSON)
+    // H5 scene info, compact JSON
     const scene_info_json = JSON.stringify({
       h5_info: {
         type: "Wap",
@@ -89,10 +85,10 @@ exports.handler = async (event) => {
     // Generate sign
     params.sign = createSign(params, key);
 
+    // Build compact XML
     const xmlData = buildWeChatXML(params);
-    console.log("📤 XML sent to WeChat:\n", xmlData);
 
-    // Send request
+    // Send request to WeChat
     const response = await axios.post(
       "https://api.mch.weixin.qq.com/pay/unifiedorder",
       xmlData,
@@ -101,8 +97,6 @@ exports.handler = async (event) => {
 
     const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
     const result = parsed.xml;
-
-    console.log("🟢 WeChat unifiedorder response:", result);
 
     if (result.return_code === "SUCCESS" && result.result_code === "SUCCESS") {
       const mweb_url = `${result.mweb_url}&redirect_url=${encodeURIComponent(redirect_url)}`;
@@ -130,9 +124,7 @@ exports.handler = async (event) => {
         })
       };
     }
-
   } catch (err) {
-    console.error("❌ WeChat H5 Pay Error:", err.message || err, err.stack);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message || "Unexpected error" })
