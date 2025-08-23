@@ -1,138 +1,224 @@
+// functions/wechat-pay.js
 const axios = require("axios");
 const crypto = require("crypto");
-const { MongoClient } = require("mongodb");
 const xml2js = require("xml2js");
-require("dotenv").config();
 
-// Generate random nonce string
+const APP_ID = process.env.WECHAT_APP_ID; // Your WeChat AppID
+const MCH_ID = process.env.WECHAT_MCH_ID; // Your Merchant ID
+const API_KEY = process.env.WECHAT_API_KEY; // Your API Key
+const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // Your server notify URL
+
+// Generate a random string
 const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
 
-// Connect to MongoDB
-const connectDB = async () => {
-  const client = new MongoClient(process.env.MONGO_URI);
-  await client.connect();
-  return client.db("tarot-station");
-};
-
-// Generate WeChat MD5 sign
-const createSign = (params, key) => {
-  const stringA = Object.keys(params)
-    .filter(k => k !== "sign" && params[k] !== undefined && params[k] !== "")
-    .sort()
-    .map(k => `${k}=${params[k]}`)
-    .join("&");
-  const stringSignTemp = `${stringA}&key=${key}`;
+// Generate WeChat Pay sign
+const generateSign = (params) => {
+  const sortedKeys = Object.keys(params).sort();
+  const stringA = sortedKeys.map(key => `${key}=${params[key]}`).join("&");
+  const stringSignTemp = `${stringA}&key=${API_KEY}`;
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
 
-// Build compact XML
-const buildWeChatXML = (params) => `<xml>
-<appid><![CDATA[${params.appid}]]></appid>
-<mch_id><![CDATA[${params.mch_id}]]></mch_id>
-<nonce_str><![CDATA[${params.nonce_str}]]></nonce_str>
-<body><![CDATA[${params.body}]]></body>
-<out_trade_no><![CDATA[${params.out_trade_no}]]></out_trade_no>
-<total_fee>${params.total_fee}</total_fee>
-<spbill_create_ip><![CDATA[${params.spbill_create_ip}]]></spbill_create_ip>
-<notify_url><![CDATA[${params.notify_url}]]></notify_url>
-<trade_type><![CDATA[${params.trade_type}]]></trade_type>
-<scene_info><![CDATA[${params.scene_info}]]></scene_info>
-<sign><![CDATA[${params.sign}]]></sign>
-</xml>`;
+// Convert JS object to XML
+const buildXML = (obj) => {
+  let xml = "<xml>";
+  for (let key in obj) {
+    xml += `<${key}>${obj[key]}</${key}>`;
+  }
+  xml += "</xml>";
+  return xml;
+};
+
+// Parse XML string to JS object
+const parseXML = async (xmlStr) => {
+  return await xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
+};
 
 exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
+
+  const { amount } = JSON.parse(event.body);
+
+  const data = {
+    appid: APP_ID,
+    mch_id: MCH_ID,
+    nonce_str: generateNonceStr(),
+    body: "Tarot App Recharge",
+    out_trade_no: `RNWX${Date.now()}`,
+    total_fee: amount, // in cents
+    spbill_create_ip: "127.0.0.1",
+    notify_url: NOTIFY_URL,
+    trade_type: "MWEB", // H5 Payment
+  };
+
+  data.sign = generateSign(data);
+
   try {
-    const body = JSON.parse(event.body || "{}");
-    const total_fee = body.total_fee ? Math.floor(body.total_fee) : 100; // 1.00 CNY default
-    const userId = (body.userId || "guest").toString();
-    const out_trade_no = `U${userId.slice(0, 6)}${Date.now().toString().slice(-10)}`;
-
-    // Config
-    const appid = process.env.WECHAT_APPID;
-    const mch_id = process.env.WECHAT_MCH_ID;
-    const key = process.env.WECHAT_API_KEY;
-    const notify_url = "https://backend-tarot-app.netlify.app/.netlify/functions/wechat-notify";
-    const redirect_url = "https://successscreen.netlify.app/success.html";
-    const trade_type = "MWEB";
-
-    // Force valid IPv4
-    const ipHeader = event.headers['x-forwarded-for'] || '';
-    let ip = ipHeader.split(',')[0]?.trim() || "1.1.1.1";
-    if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) ip = "1.1.1.1";
-
-    // H5 scene info (compact JSON)
-    const scene_info_json = JSON.stringify({
-      h5_info: {
-        type: "Wap",
-        wap_url: "https://tarotstation.netlify.app/",
-        wap_name: "Tarot Wallet"
-      }
+    const response = await axios.post("https://api.mch.weixin.qq.com/pay/unifiedorder", buildXML(data), {
+      headers: { "Content-Type": "text/xml" },
     });
 
-    const params = {
-      appid,
-      mch_id,
-      nonce_str: generateNonceStr(),
-      body: "Tarot Wallet Recharge",
-      out_trade_no,
-      total_fee: total_fee.toString(),
-      spbill_create_ip: ip,
-      notify_url,
-      trade_type,
-      scene_info: scene_info_json
-    };
+    const result = await parseXML(response.data);
 
-    // Generate sign
-    params.sign = createSign(params, key);
-
-    // Build XML
-    const xmlData = buildWeChatXML(params);
-
-    // Send request to WeChat
-    const response = await axios.post(
-      "https://api.mch.weixin.qq.com/pay/unifiedorder",
-      xmlData,
-      { headers: { "Content-Type": "text/xml; charset=utf-8" } }
-    );
-
-    // Parse XML response
-    const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
-    const result = parsed.xml;
-
-    if (result.return_code === "SUCCESS" && result.result_code === "SUCCESS") {
-      const mweb_url = `${result.mweb_url}&redirect_url=${encodeURIComponent(redirect_url)}`;
-
-      // Save order in DB
-      const db = await connectDB();
-      await db.collection("wechat_orders").insertOne({
-        out_trade_no,
-        userId,
-        total_fee,
-        status: "PENDING",
-        createdAt: new Date()
-      });
-
+    if (result.xml && result.xml.return_code === "SUCCESS" && result.xml.result_code === "SUCCESS") {
       return {
         statusCode: 200,
-        body: JSON.stringify({ paymentUrl: mweb_url, out_trade_no })
+        body: JSON.stringify({
+          paymentUrl: result.xml.mweb_url,
+        }),
       };
     } else {
       return {
         statusCode: 400,
-        body: JSON.stringify({
-          error: result.return_msg || result.err_code_des || "WeChat error",
-          raw: result
-        })
+        body: JSON.stringify({ error: result.xml.return_msg || result.xml.err_code_des }),
       };
     }
   } catch (err) {
-    console.error("❌ WeChat H5 Pay Error:", err.message || err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message || "Unexpected error" })
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+
+
+
+
+// const axios = require("axios");
+// const crypto = require("crypto");
+// const { MongoClient } = require("mongodb");
+// const xml2js = require("xml2js");
+// require("dotenv").config();
+
+// // Generate random nonce string
+// const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
+
+// // Connect to MongoDB
+// const connectDB = async () => {
+//   const client = new MongoClient(process.env.MONGO_URI);
+//   await client.connect();
+//   return client.db("tarot-station");
+// };
+
+// // Generate WeChat MD5 sign
+// const createSign = (params, key) => {
+//   const stringA = Object.keys(params)
+//     .filter(k => k !== "sign" && params[k] !== undefined && params[k] !== "")
+//     .sort()
+//     .map(k => `${k}=${params[k]}`)
+//     .join("&");
+//   const stringSignTemp = `${stringA}&key=${key}`;
+//   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
+// };
+
+// // Build compact XML
+// const buildWeChatXML = (params) => `<xml>
+// <appid><![CDATA[${params.appid}]]></appid>
+// <mch_id><![CDATA[${params.mch_id}]]></mch_id>
+// <nonce_str><![CDATA[${params.nonce_str}]]></nonce_str>
+// <body><![CDATA[${params.body}]]></body>
+// <out_trade_no><![CDATA[${params.out_trade_no}]]></out_trade_no>
+// <total_fee>${params.total_fee}</total_fee>
+// <spbill_create_ip><![CDATA[${params.spbill_create_ip}]]></spbill_create_ip>
+// <notify_url><![CDATA[${params.notify_url}]]></notify_url>
+// <trade_type><![CDATA[${params.trade_type}]]></trade_type>
+// <scene_info><![CDATA[${params.scene_info}]]></scene_info>
+// <sign><![CDATA[${params.sign}]]></sign>
+// </xml>`;
+
+// exports.handler = async (event) => {
+//   try {
+//     const body = JSON.parse(event.body || "{}");
+//     const total_fee = body.total_fee ? Math.floor(body.total_fee) : 100; // 1.00 CNY default
+//     const userId = (body.userId || "guest").toString();
+//     const out_trade_no = `U${userId.slice(0, 6)}${Date.now().toString().slice(-10)}`;
+
+//     // Config
+//     const appid = process.env.WECHAT_APPID;
+//     const mch_id = process.env.WECHAT_MCH_ID;
+//     const key = process.env.WECHAT_API_KEY;
+//     const notify_url = "https://backend-tarot-app.netlify.app/.netlify/functions/wechat-notify";
+//     const redirect_url = "https://successscreen.netlify.app/success.html";
+//     const trade_type = "MWEB";
+
+//     // Force valid IPv4
+//     const ipHeader = event.headers['x-forwarded-for'] || '';
+//     let ip = ipHeader.split(',')[0]?.trim() || "1.1.1.1";
+//     if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) ip = "1.1.1.1";
+
+//     // H5 scene info (compact JSON)
+//     const scene_info_json = JSON.stringify({
+//       h5_info: {
+//         type: "Wap",
+//         wap_url: "https://tarotstation.netlify.app/",
+//         wap_name: "Tarot Wallet"
+//       }
+//     });
+
+//     const params = {
+//       appid,
+//       mch_id,
+//       nonce_str: generateNonceStr(),
+//       body: "Tarot Wallet Recharge",
+//       out_trade_no,
+//       total_fee: total_fee.toString(),
+//       spbill_create_ip: ip,
+//       notify_url,
+//       trade_type,
+//       scene_info: scene_info_json
+//     };
+
+//     // Generate sign
+//     params.sign = createSign(params, key);
+
+//     // Build XML
+//     const xmlData = buildWeChatXML(params);
+
+//     // Send request to WeChat
+//     const response = await axios.post(
+//       "https://api.mch.weixin.qq.com/pay/unifiedorder",
+//       xmlData,
+//       { headers: { "Content-Type": "text/xml; charset=utf-8" } }
+//     );
+
+//     // Parse XML response
+//     const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+//     const result = parsed.xml;
+
+//     if (result.return_code === "SUCCESS" && result.result_code === "SUCCESS") {
+//       const mweb_url = `${result.mweb_url}&redirect_url=${encodeURIComponent(redirect_url)}`;
+
+//       // Save order in DB
+//       const db = await connectDB();
+//       await db.collection("wechat_orders").insertOne({
+//         out_trade_no,
+//         userId,
+//         total_fee,
+//         status: "PENDING",
+//         createdAt: new Date()
+//       });
+
+//       return {
+//         statusCode: 200,
+//         body: JSON.stringify({ paymentUrl: mweb_url, out_trade_no })
+//       };
+//     } else {
+//       return {
+//         statusCode: 400,
+//         body: JSON.stringify({
+//           error: result.return_msg || result.err_code_des || "WeChat error",
+//           raw: result
+//         })
+//       };
+//     }
+//   } catch (err) {
+//     console.error("❌ WeChat H5 Pay Error:", err.message || err);
+//     return {
+//       statusCode: 500,
+//       body: JSON.stringify({ error: err.message || "Unexpected error" })
+//     };
+//   }
+// };
 
 
 
