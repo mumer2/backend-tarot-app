@@ -6,12 +6,14 @@ const xml2js = require("xml2js");
 const APP_ID = process.env.WECHAT_APPID;
 const MCH_ID = process.env.WECHAT_MCH_ID;
 const API_KEY = process.env.WECHAT_API_KEY;
-const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // HTTPS URL of your notify function
+const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // HTTPS notify URL
 
-// Generate random string
+if (!APP_ID || !MCH_ID || !API_KEY || !NOTIFY_URL) {
+  console.error("❌ Missing WeChat environment variables");
+}
+
 const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
 
-// Generate WeChat sign
 const generateSign = (params) => {
   const sortedKeys = Object.keys(params).sort();
   const stringA = sortedKeys.map(k => `${k}=${params[k]}`).join("&");
@@ -19,7 +21,6 @@ const generateSign = (params) => {
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
 
-// Convert JS object to XML
 const buildXML = (obj) => {
   let xml = "<xml>";
   for (let key in obj) xml += `<${key}>${obj[key]}</${key}>`;
@@ -27,7 +28,6 @@ const buildXML = (obj) => {
   return xml;
 };
 
-// Parse XML to JS object
 const parseXML = async (xmlStr) => {
   return await xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
 };
@@ -50,7 +50,7 @@ exports.handler = async (event) => {
       spbill_create_ip: "127.0.0.1",
       notify_url: NOTIFY_URL,
       trade_type: "MWEB",
-      attach: userId // so notify function knows which user
+      attach: userId // used in notify to credit balance
     };
 
     data.sign = generateSign(data);
@@ -81,6 +81,7 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
 
 
 
