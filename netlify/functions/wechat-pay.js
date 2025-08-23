@@ -1,17 +1,20 @@
 const axios = require("axios");
 const crypto = require("crypto");
 const { MongoClient } = require("mongodb");
+const xml2js = require("xml2js");
 require("dotenv").config();
 
+// Generate random nonce string
 const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
 
+// Connect to MongoDB
 const connectDB = async () => {
   const client = new MongoClient(process.env.MONGO_URI);
   await client.connect();
   return client.db("tarot-station");
 };
 
-// WeChat sign generator
+// Generate WeChat MD5 sign
 const createSign = (params, key) => {
   const stringA = Object.keys(params)
     .filter(k => k !== "sign" && params[k] !== undefined && params[k] !== "")
@@ -23,7 +26,7 @@ const createSign = (params, key) => {
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
 
-// Build XML manually to avoid WeChat JSON escaping issues
+// Build XML payload
 const buildWeChatXML = (params) => {
   return `
 <xml>
@@ -45,7 +48,7 @@ const buildWeChatXML = (params) => {
 exports.handler = async (event) => {
   try {
     const body = JSON.parse(event.body || "{}");
-    const total_fee = body.total_fee || 1;
+    const total_fee = body.total_fee ? Math.floor(body.total_fee) : 100; // default 1.00 CNY = 100 cents
     const userId = (body.userId || "guest").toString();
 
     const shortUserId = userId.slice(0, 6);
@@ -58,9 +61,12 @@ exports.handler = async (event) => {
     const notify_url = "https://backend-tarot-app.netlify.app/.netlify/functions/wechat-notify";
     const redirect_url = "https://successscreen.netlify.app/success.html";
     const trade_type = "MWEB";
-    const ip = event.headers['x-forwarded-for']?.split(',')[0] || "8.8.8.8";
 
-    // scene_info must be wrapped in CDATA
+    // Get client IP (must be valid public IPv4)
+    const ipHeader = event.headers['x-forwarded-for'] || '';
+    const ip = ipHeader.split(',')[0]?.trim() || "1.1.1.1"; // fallback valid IPv4
+
+    // H5 scene info
     const scene_info_json = JSON.stringify({
       h5_info: {
         type: "Wap",
@@ -82,21 +88,21 @@ exports.handler = async (event) => {
       scene_info: scene_info_json
     };
 
-    // Create sign
+    // Generate sign
     const sign = createSign(params, key);
     params.sign = sign;
 
     const xmlData = buildWeChatXML(params);
     console.log("📤 XML sent to WeChat:\n", xmlData);
 
-    // Send request
+    // Send request to WeChat
     const response = await axios.post(
       "https://api.mch.weixin.qq.com/pay/unifiedorder",
       xmlData,
       { headers: { "Content-Type": "text/xml; charset=utf-8" } }
     );
 
-    const xml2js = require("xml2js");
+    // Parse XML response
     const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
     const result = parsed.xml;
 
@@ -131,6 +137,7 @@ exports.handler = async (event) => {
         })
       };
     }
+
   } catch (err) {
     console.error("❌ WeChat H5 Pay Error:", err.message || err, err.stack);
     return {
@@ -139,6 +146,7 @@ exports.handler = async (event) => {
     };
   }
 };
+
 
 
 
