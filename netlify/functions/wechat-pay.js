@@ -3,18 +3,18 @@ const axios = require("axios");
 const crypto = require("crypto");
 const xml2js = require("xml2js");
 
-const APP_ID = process.env.WECHAT_APP_ID; // Your WeChat AppID
-const MCH_ID = process.env.WECHAT_MCH_ID; // Your Merchant ID
-const API_KEY = process.env.WECHAT_API_KEY; // Your API Key
-const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // Your server notify URL
+const APP_ID = process.env.WECHAT_APP_ID;
+const MCH_ID = process.env.WECHAT_MCH_ID;
+const API_KEY = process.env.WECHAT_API_KEY;
+const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // HTTPS URL of your notify function
 
-// Generate a random string
+// Generate random string
 const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
 
-// Generate WeChat Pay sign
+// Generate WeChat sign
 const generateSign = (params) => {
   const sortedKeys = Object.keys(params).sort();
-  const stringA = sortedKeys.map(key => `${key}=${params[key]}`).join("&");
+  const stringA = sortedKeys.map(k => `${k}=${params[k]}`).join("&");
   const stringSignTemp = `${stringA}&key=${API_KEY}`;
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
@@ -22,52 +22,53 @@ const generateSign = (params) => {
 // Convert JS object to XML
 const buildXML = (obj) => {
   let xml = "<xml>";
-  for (let key in obj) {
-    xml += `<${key}>${obj[key]}</${key}>`;
-  }
+  for (let key in obj) xml += `<${key}>${obj[key]}</${key}>`;
   xml += "</xml>";
   return xml;
 };
 
-// Parse XML string to JS object
+// Parse XML to JS object
 const parseXML = async (xmlStr) => {
   return await xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
 };
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
-  const { amount } = JSON.parse(event.body);
-
-  const data = {
-    appid: APP_ID,
-    mch_id: MCH_ID,
-    nonce_str: generateNonceStr(),
-    body: "Tarot App Recharge",
-    out_trade_no: `RNWX${Date.now()}`,
-    total_fee: amount, // in cents
-    spbill_create_ip: "127.0.0.1",
-    notify_url: NOTIFY_URL,
-    trade_type: "MWEB", // H5 Payment
-  };
-
-  data.sign = generateSign(data);
+  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
   try {
-    const response = await axios.post("https://api.mch.weixin.qq.com/pay/unifiedorder", buildXML(data), {
-      headers: { "Content-Type": "text/xml" },
-    });
+    const { amount, userId } = JSON.parse(event.body);
+
+    if (!amount || !userId) return { statusCode: 400, body: "Missing amount or userId" };
+
+    const data = {
+      appid: APP_ID,
+      mch_id: MCH_ID,
+      nonce_str: generateNonceStr(),
+      body: "Tarot App Recharge",
+      out_trade_no: `RNWX${Date.now()}`,
+      total_fee: Math.round(amount), // amount in cents
+      spbill_create_ip: "127.0.0.1",
+      notify_url: NOTIFY_URL,
+      trade_type: "MWEB",
+      attach: userId // so notify function knows which user
+    };
+
+    data.sign = generateSign(data);
+
+    console.log("WeChat Request XML:", buildXML(data));
+
+    const response = await axios.post(
+      "https://api.mch.weixin.qq.com/pay/unifiedorder",
+      buildXML(data),
+      { headers: { "Content-Type": "text/xml" } }
+    );
 
     const result = await parseXML(response.data);
 
     if (result.xml && result.xml.return_code === "SUCCESS" && result.xml.result_code === "SUCCESS") {
       return {
         statusCode: 200,
-        body: JSON.stringify({
-          paymentUrl: result.xml.mweb_url,
-        }),
+        body: JSON.stringify({ paymentUrl: result.xml.mweb_url }),
       };
     } else {
       return {
@@ -76,6 +77,7 @@ exports.handler = async (event) => {
       };
     }
   } catch (err) {
+    console.error("WeChat Pay Error:", err.message);
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
