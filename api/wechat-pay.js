@@ -1,87 +1,79 @@
+// api/wechat-pay.js
 import crypto from "crypto";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
   try {
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
+    }
+
     const { total_fee, userId } = req.body;
 
     if (!total_fee || !userId) {
-      return res.status(400).json({ error: "Missing parameters" });
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // ✅ Your WeChat Pay credentials from merchant account
-    const mch_id = process.env.WECHAT_MCH_ID;
-    const appid = process.env.WECHAT_APPID;
-    const mch_key = process.env.WECHAT_API_KEY;
-    const notify_url = process.env.WECHAT_NOTIFY_URL; // must be HTTPS
-    const trade_type = "MWEB"; // H5 payment
+    // ✅ Replace with your real WeChat Pay credentials
+    const appId = process.env.WECHAT_APP_ID;
+    const mchId = process.env.WECHAT_MCH_ID;
+    const apiKey = process.env.WECHAT_API_KEY;
+    const notifyUrl = process.env.WECHAT_NOTIFY_URL;
 
-    const out_trade_no = "ORD" + Date.now();
+    // Unique order ID
+    const out_trade_no = `${userId}_${Date.now()}`;
 
-    // ✅ Payment parameters
+    // WeChat H5 payment params
     const params = {
-      appid,
-      mch_id,
+      appid: appId,
+      mch_id: mchId,
       nonce_str: crypto.randomBytes(16).toString("hex"),
-      body: "Tarot Order",
+      body: "Recharge",
       out_trade_no,
       total_fee,
-      spbill_create_ip: "127.0.0.1", // client IP
-      notify_url,
-      trade_type,
+      spbill_create_ip: "127.0.0.1",
+      notify_url: notifyUrl,
+      trade_type: "MWEB", // H5
       scene_info: JSON.stringify({
-        h5_info: {
-          type: "Wap",
-          wap_url: "https://yourdomain.com",
-          wap_name: "Tarot Station",
-        },
+        h5_info: { type: "Wap", wap_url: "https://yourdomain.com", wap_name: "Recharge" },
       }),
     };
 
-    // ✅ Sign parameters
+    // ✅ Generate sign
     const stringA = Object.keys(params)
       .sort()
-      .map((key) => `${key}=${params[key]}`)
+      .map((k) => `${k}=${params[k]}`)
       .join("&");
+    const stringSignTemp = stringA + `&key=${apiKey}`;
+    const sign = crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 
-    const stringSignTemp = `${stringA}&key=${mch_key}`;
-    const sign = crypto
-      .createHash("md5")
-      .update(stringSignTemp, "utf8")
-      .digest("hex")
-      .toUpperCase();
+    params.sign = sign;
 
-    const xmlBody = `
-      <xml>
-        ${Object.keys(params)
-          .map((key) => `<${key}>${params[key]}</${key}>`)
-          .join("")}
-        <sign>${sign}</sign>
-      </xml>
-    `;
+    // ✅ Convert params to XML
+    const xmlData = `<xml>
+      ${Object.keys(params)
+        .map((k) => `<${k}>${params[k]}</${k}>`)
+        .join("")}
+    </xml>`;
 
-    // ✅ Call WeChat unified order API
+    // ✅ Call WeChat unifiedorder API
     const fetchRes = await fetch("https://api.mch.weixin.qq.com/pay/unifiedorder", {
       method: "POST",
+      body: xmlData,
       headers: { "Content-Type": "text/xml" },
-      body: xmlBody,
     });
 
     const textRes = await fetchRes.text();
 
-    // ✅ Extract paymentUrl (mweb_url) from XML
+    // ✅ Extract mweb_url
     const match = textRes.match(/<mweb_url><!\[CDATA\[(.*?)\]\]><\/mweb_url>/);
 
-    if (match) {
+    if (match && match[1]) {
       return res.status(200).json({ paymentUrl: match[1] });
     } else {
-      return res.status(400).json({ error: "WeChat Pay failed", details: textRes });
+      return res.status(400).json({ error: "Missing payment URL in response", raw: textRes });
     }
   } catch (err) {
-    console.error("WeChat Pay error:", err);
-    return res.status(500).json({ error: "Server error", message: err.message });
+    console.error("WeChat Pay Error:", err);
+    return res.status(500).json({ error: err.message || "Unexpected server error" });
   }
 }
