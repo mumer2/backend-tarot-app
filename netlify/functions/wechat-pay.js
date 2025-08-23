@@ -25,7 +25,7 @@ const createSign = (params, key) => {
   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 };
 
-// Build XML payload (compact, no line breaks inside CDATA)
+// Build compact XML
 const buildWeChatXML = (params) => `<xml>
 <appid><![CDATA[${params.appid}]]></appid>
 <mch_id><![CDATA[${params.mch_id}]]></mch_id>
@@ -45,9 +45,9 @@ exports.handler = async (event) => {
     const body = JSON.parse(event.body || "{}");
     const total_fee = body.total_fee ? Math.floor(body.total_fee) : 100; // 1.00 CNY default
     const userId = (body.userId || "guest").toString();
+    const out_trade_no = `U${userId.slice(0, 6)}${Date.now().toString().slice(-10)}`;
 
-    const out_trade_no = `U${userId.slice(0,6)}${Date.now().toString().slice(-10)}`;
-
+    // Config
     const appid = process.env.WECHAT_APPID;
     const mch_id = process.env.WECHAT_MCH_ID;
     const key = process.env.WECHAT_API_KEY;
@@ -60,7 +60,7 @@ exports.handler = async (event) => {
     let ip = ipHeader.split(',')[0]?.trim() || "1.1.1.1";
     if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) ip = "1.1.1.1";
 
-    // H5 scene info, compact JSON
+    // H5 scene info (compact JSON)
     const scene_info_json = JSON.stringify({
       h5_info: {
         type: "Wap",
@@ -85,7 +85,7 @@ exports.handler = async (event) => {
     // Generate sign
     params.sign = createSign(params, key);
 
-    // Build compact XML
+    // Build XML
     const xmlData = buildWeChatXML(params);
 
     // Send request to WeChat
@@ -95,6 +95,7 @@ exports.handler = async (event) => {
       { headers: { "Content-Type": "text/xml; charset=utf-8" } }
     );
 
+    // Parse XML response
     const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
     const result = parsed.xml;
 
@@ -125,6 +126,7 @@ exports.handler = async (event) => {
       };
     }
   } catch (err) {
+    console.error("❌ WeChat H5 Pay Error:", err.message || err);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message || "Unexpected error" })
