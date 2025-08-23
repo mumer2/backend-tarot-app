@@ -34,7 +34,7 @@ export default async function handler(req, res) {
       notify_url: notifyUrl,
       trade_type: "MWEB", // H5
       scene_info: JSON.stringify({
-        h5_info: { type: "Wap", wap_url: "https://yourdomain.com", wap_name: "Recharge" },
+        h5_info: { type: "Wap", wap_url: "https://tarotstation.netlify.app/", wap_name: "Recharge" },
       }),
     };
 
