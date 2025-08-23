@@ -3,7 +3,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 const xml2js = require("xml2js");
 
-const APP_ID = process.env.WECHAT_APP_ID;
+const APP_ID = process.env.WECHAT_APPID;
 const MCH_ID = process.env.WECHAT_MCH_ID;
 const API_KEY = process.env.WECHAT_API_KEY;
 const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // HTTPS URL of your notify function
