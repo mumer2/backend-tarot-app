@@ -1,79 +1,90 @@
-// api/wechat-pay.js
 import crypto from "crypto";
+import { parseStringPromise } from "xml2js";
+import axios from "axios";
 
 export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
   try {
-    if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed" });
-    }
-
     const { total_fee, userId } = req.body;
-
     if (!total_fee || !userId) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: "Missing parameters" });
     }
 
-    // ✅ Replace with your real WeChat Pay credentials
-    const appId = process.env.WECHAT_APP_ID;
-    const mchId = process.env.WECHAT_MCH_ID;
+    const appid = process.env.WECHAT_APPID;
+    const mch_id = process.env.WECHAT_MCHID;
     const apiKey = process.env.WECHAT_API_KEY;
-    const notifyUrl = process.env.WECHAT_NOTIFY_URL;
+    const notify_url = process.env.WECHAT_NOTIFY_URL;
 
-    // Unique order ID
-    const out_trade_no = `${userId}_${Date.now()}`;
+    const nonce_str = crypto.randomBytes(16).toString("hex");
+    const out_trade_no = Date.now().toString();
 
-    // WeChat H5 payment params
+    // Required params
     const params = {
-      appid: appId,
-      mch_id: mchId,
-      nonce_str: crypto.randomBytes(16).toString("hex"),
-      body: "Recharge",
+      appid,
+      mch_id,
+      nonce_str,
+      body: "Tarot Reading Service",
       out_trade_no,
-      total_fee,
+      total_fee, // already in fen
       spbill_create_ip: "127.0.0.1",
-      notify_url: notifyUrl,
-      trade_type: "MWEB", // H5
+      notify_url,
+      trade_type: "MWEB",
       scene_info: JSON.stringify({
-        h5_info: { type: "Wap", wap_url: "https://tarotstation.netlify.app/", wap_name: "Recharge" },
+        h5_info: {
+          type: "Wap",
+          wap_url: "https://your-frontend-domain.com",
+          wap_name: "Tarot Station",
+        },
       }),
     };
 
-    // ✅ Generate sign
+    // Sign the request
     const stringA = Object.keys(params)
+      .filter((k) => params[k] !== undefined && params[k] !== "")
       .sort()
       .map((k) => `${k}=${params[k]}`)
       .join("&");
-    const stringSignTemp = stringA + `&key=${apiKey}`;
-    const sign = crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
 
-    params.sign = sign;
+    const stringSignTemp = `${stringA}&key=${apiKey}`;
+    const sign = crypto
+      .createHash("md5")
+      .update(stringSignTemp, "utf8")
+      .digest("hex")
+      .toUpperCase();
 
-    // ✅ Convert params to XML
-    const xmlData = `<xml>
+    // Build XML
+    const xml = `<xml>
       ${Object.keys(params)
-        .map((k) => `<${k}>${params[k]}</${k}>`)
+        .map((k) => `<${k}><![CDATA[${params[k]}]]></${k}>`)
         .join("")}
+      <sign><![CDATA[${sign}]]></sign>
     </xml>`;
 
-    // ✅ Call WeChat unifiedorder API
-    const fetchRes = await fetch("https://api.mch.weixin.qq.com/pay/unifiedorder", {
-      method: "POST",
-      body: xmlData,
-      headers: { "Content-Type": "text/xml" },
-    });
+    // Call WeChat unifiedorder API
+    const { data } = await axios.post(
+      "https://api.mch.weixin.qq.com/pay/unifiedorder",
+      xml,
+      { headers: { "Content-Type": "text/xml" } }
+    );
 
-    const textRes = await fetchRes.text();
+    // Parse XML response
+    const result = await parseStringPromise(data, { explicitArray: false });
 
-    // ✅ Extract mweb_url
-    const match = textRes.match(/<mweb_url><!\[CDATA\[(.*?)\]\]><\/mweb_url>/);
-
-    if (match && match[1]) {
-      return res.status(200).json({ paymentUrl: match[1] });
+    if (
+      result.xml.return_code === "SUCCESS" &&
+      result.xml.result_code === "SUCCESS"
+    ) {
+      return res.json({ paymentUrl: result.xml.mweb_url });
     } else {
-      return res.status(400).json({ error: "Missing payment URL in response", raw: textRes });
+      return res
+        .status(400)
+        .json({ error: result.xml.err_code_des || "WeChat Pay failed" });
     }
   } catch (err) {
-    console.error("WeChat Pay Error:", err);
-    return res.status(500).json({ error: err.message || "Unexpected server error" });
+    console.error("WeChat Pay error:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
