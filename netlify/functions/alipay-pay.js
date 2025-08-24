@@ -1,54 +1,46 @@
 // netlify/functions/alipay-pay.js
-const AlipaySdk = require("alipay-sdk").default;
-const AlipayFormData = require("alipay-sdk/lib/form").default;
+import AlipaySdk from 'alipay-sdk';
+import crypto from 'crypto';
 
+// ✅ Initialize Alipay
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APPID,
-  privateKey: process.env.APP_PRIVATE_KEY, // from Alipay merchant account
-  gateway: "https://openapi.alipaydev.com/gateway.do", // sandbox
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'), // handle env formatting
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
+  gateway: 'https://openapi.alipaydev.com/gateway.do', // sandbox
+  signType: 'RSA2',
 });
 
-exports.handler = async (event) => {
+// ✅ Netlify Lambda handler
+export async function handler(event, context) {
   try {
-    const { amount, userId } = JSON.parse(event.body);
+    const body = JSON.parse(event.body || '{}');
+    const { outTradeNo, subject, totalAmount, productCode } = body;
 
-    if (!amount || !userId) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing amount or userId" }),
-      };
-    }
-
-    const formData = new AlipayFormData();
-    formData.setMethod("get");
-    formData.addField("returnUrl", "https://your-app.com/payment-success"); // adjust
-    formData.addField("notifyUrl", "https://your-backend.com/notify"); // adjust
-    formData.addField("bizContent", {
-      outTradeNo: `ORDER_${Date.now()}`,
-      productCode: "QUICK_WAP_WAY",
-      totalAmount: amount,
-      subject: `Payment for user ${userId}`,
+    // Example payment request
+    const result = await alipaySdk.exec('alipay.trade.wap.pay', {
+      bizContent: {
+        out_trade_no: outTradeNo || 'ORDER_' + Date.now(),
+        subject: subject || 'Test Order',
+        total_amount: totalAmount || '0.01',
+        product_code: productCode || 'QUICK_WAP_WAY',
+      },
+      return_url: process.env.ALIPAY_RETURN_URL, // redirect back after payment
+      notify_url: process.env.ALIPAY_NOTIFY_URL, // async callback
     });
-
-    const paymentUrl = await alipaySdk.exec(
-      "alipay.trade.wap.pay",
-      {},
-      { formData }
-    );
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ paymentUrl }),
+      body: JSON.stringify({ success: true, result }),
     };
-  } catch (err) {
-    console.error("Alipay Error:", err);
+  } catch (error) {
+    console.error('Alipay Pay Error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      body: JSON.stringify({ success: false, error: error.message }),
     };
   }
-};
+}
 
 
 
