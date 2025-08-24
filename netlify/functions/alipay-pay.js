@@ -7,7 +7,7 @@ const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
   privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
-  gateway: 'https://openapi.alipay.com/gateway.do',
+  gateway: 'https://openapi.alipaydev.com/gateway.do', // sandbox
   signType: 'RSA2',
 });
 
