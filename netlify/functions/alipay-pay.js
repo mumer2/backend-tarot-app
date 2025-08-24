@@ -1,48 +1,78 @@
-// netlify/functions/alipay-pay.js
-const { AlipaySdk } = require("alipay-sdk");
+// netlify/functions/create-alipay-order.js
+const AlipaySdk = require("alipay-sdk").default;
+const qs = require("qs");
 
+const sdk = new AlipaySdk({
+  appId: process.env.ALIPAY_APPID,
+  privateKey: process.env.APP_PRIVATE_KEY,
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+  gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipaydev.com/gateway.do",
+  signType: "RSA2",
+  timeout: 5000
+});
+
+/**
+ * Body JSON you can send from the app:
+ * { amount: "10.00", subject: "Tarot Recharge", outTradeNo: "your-id-123" }
+ * If omitted, defaults are used.
+ */
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
-    }
+    const body = event.body ? JSON.parse(event.body) : {};
+    const totalAmount = String(body.amount || "10.00"); // Yuan
+    const subject = body.subject || "Test Order";
+    const outTradeNo = body.outTradeNo || String(Date.now());
+    const returnUrl = process.env.RETURN_URL;
+    const notifyUrl = process.env.NOTIFY_URL;
 
-    const { amount, userId } = JSON.parse(event.body);
-
-    if (!amount || !userId) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Missing amount or userId" }) };
-    }
-
-    // Initialize Alipay SDK
-    const alipaySdk = new AlipaySdk({
-      appId: process.env.ALIPAY_APP_ID,
-      privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
-      signType: "RSA2",
-      timeout: 30000, // 30 seconds
-    });
-
-    const orderId = "order_" + Date.now();
-
-    // Generate order string for mobile app
-    const orderInfo = await alipaySdk.exec("alipay.trade.app.pay", {
+    // Build WAP Pay (H5) request
+    const params = {
       bizContent: {
-        subject: "Tarot Coins Recharge",
-        out_trade_no: orderId,
-        total_amount: Number(amount).toFixed(2),
-        product_code: "QUICK_MSECURITY_PAY",
-        passback_params: encodeURIComponent(userId),
+        out_trade_no: outTradeNo,
+        product_code: "QUICK_WAP_WAY",
+        total_amount: totalAmount,
+        subject
       },
-      notifyUrl: "https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify",
-    });
+      return_url: returnUrl,
+      notify_url: notifyUrl
+    };
+
+    /**
+     * IMPORTANT:
+     * - For H5/WAP/web payments, use pageExecute/pageExec.
+     * - It returns an HTML <form> string by default OR a full redirect URL depending on version/opts.
+     */
+    const htmlOrUrl = await sdk.pageExecute("alipay.trade.wap.pay", params, { method: "GET" });
+
+    // Normalize response for the app:
+    // If it looks like HTML form, send "html"; else treat it as a URL.
+    const isHtml = typeof htmlOrUrl === "string" && /^</.test(htmlOrUrl.trim());
+
+    // CORS headers so you can call from your Expo app directly
+    const cors = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type"
+    };
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ orderInfo, orderId }),
+      headers: { "Content-Type": "application/json", ...cors },
+      body: JSON.stringify({
+        type: isHtml ? "html" : "url",
+        data: htmlOrUrl,
+        outTradeNo
+      })
     };
-  } catch (err) {
-    console.error("Alipay Pay Error:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+  } catch (error) {
+    const cors = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type"
+    };
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json", ...cors },
+      body: JSON.stringify({ error: error.message })
+    };
   }
 };
 

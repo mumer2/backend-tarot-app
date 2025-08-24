@@ -1,53 +1,47 @@
 // netlify/functions/alipay-notify.js
-const { AlipaySdk } = require("alipay-sdk");
-const { MongoClient } = require("mongodb");
+const AlipaySdk = require("alipay-sdk").default;
+const qs = require("qs");
+
+// Same SDK config as create-alipay-order:
+const sdk = new AlipaySdk({
+  appId: process.env.ALIPAY_APP_ID,
+  privateKey: process.env.ALIPAY_PRIVATE_KEY,
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+  gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipaydev.com/gateway.do",
+  signType: "RSA2",
+  timeout: 5000
+});
 
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+    if (event.httpMethod !== "POST") {
+      return { statusCode: 405, body: "Method Not Allowed" };
+    }
 
-    const params = new URLSearchParams(event.body);
-    const notifyData = {};
-    for (const [key, value] of params.entries()) notifyData[key] = value;
+    // Alipay posts form-urlencoded
+    const contentType = event.headers["content-type"] || event.headers["Content-Type"] || "";
+    if (!contentType.includes("application/x-www-form-urlencoded")) {
+      return { statusCode: 400, body: "Bad Request" };
+    }
 
-    console.log("🔔 Alipay Notify Data:", notifyData);
+    const postData = qs.parse(event.body);
 
-    const alipaySdk = new AlipaySdk({
-      appId: process.env.ALIPAY_APP_ID,
-      privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
-      signType: "RSA2",
-    });
+    // Verify signature (use V2 if your values contain +/% issues)
+    const ok = sdk.checkNotifySignV2 ? sdk.checkNotifySignV2(postData) : sdk.checkNotifySign(postData, false);
 
-    const isVerified = alipaySdk.checkNotifySign(notifyData);
-    if (!isVerified) {
-      console.error("❌ Invalid signature");
+    if (!ok) {
+      console.error("Alipay notify signature check FAILED", postData);
       return { statusCode: 400, body: "fail" };
     }
 
-    if (notifyData.trade_status === "TRADE_SUCCESS") {
-      const userId = decodeURIComponent(notifyData.passback_params || "");
-      const amount = parseFloat(notifyData.total_amount);
+    // Example: handle trade_status
+    const { out_trade_no, trade_status } = postData;
+    // TODO: update your order in DB by out_trade_no
 
-      try {
-        const client = new MongoClient(process.env.MONGO_URI);
-        await client.connect();
-        const db = client.db("tarot-station");
-        await db.collection("wallets").updateOne(
-          { userId },
-          { $inc: { balance: amount }, $setOnInsert: { createdAt: new Date() } },
-          { upsert: true }
-        );
-        await client.close();
-        console.log(`💰 Wallet updated for ${userId}: +${amount}`);
-      } catch (dbErr) {
-        console.error("❌ MongoDB Error:", dbErr);
-      }
-    }
-
+    // Must return 'success'
     return { statusCode: 200, body: "success" };
-  } catch (err) {
-    console.error("❌ Notify Error:", err);
+  } catch (e) {
+    console.error("Notify error:", e);
     return { statusCode: 500, body: "fail" };
   }
 };
