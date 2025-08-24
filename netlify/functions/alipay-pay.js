@@ -9,41 +9,57 @@ const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
   privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
-  gateway: 'https://openapi.alipaydev.com/gateway.do', // sandbox
+  gateway: 'https://openapi.alipay.com/gateway.do', // sandbox
   signType: 'RSA2',
 });
 
-// Netlify Lambda handler
-exports.handler = async (event) => {
-  try {
-    const body = JSON.parse(event.body || '{}');
-    const { outTradeNo, subject, totalAmount, productCode } = body;
-
-    // Example payment request
-    const result = await alipaySdk.exec('alipay.trade.wap.pay', {
-      bizContent: {
-        out_trade_no: outTradeNo || 'ORDER_' + Date.now(),
-        subject: subject || 'Test Order',
-        total_amount: totalAmount || '0.01',
-        product_code: productCode || 'QUICK_WAP_WAY',
-      },
-      return_url: process.env.ALIPAY_RETURN_URL,
-      notify_url: process.env.ALIPAY_NOTIFY_URL,
-    });
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ success: true, result }),
-    };
-  } catch (error) {
-    console.error('Alipay Pay Error:', error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ success: false, error: error.message }),
-    };
-  }
+// Helper: CORS wrapper
+function cors(body, status = 200, contentType = "application/json") {
+  return {
+    statusCode: status,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Content-Type": contentType,
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  };
 }
 
+exports.handler = async (event) => {
+  if (event.httpMethod === "OPTIONS") return cors("");
+
+  try {
+    const { amount = "9.99", subject = "Tarot Recharge", userId } =
+      event.httpMethod === "POST"
+        ? JSON.parse(event.body || "{}")
+        : event.queryStringParameters || {};
+
+    const outTradeNo = `ORDER_${Date.now()}_${userId || "guest"}`;
+
+    const params = {
+      subject,
+      out_trade_no: outTradeNo,
+      total_amount: String(amount),
+      product_code: "QUICK_WAP_WAY",
+      quit_url: process.env.ALIPAY_RETURN_URL || "https://yourapp.com/recharge",
+    };
+
+    // Use pageExec to get a redirect URL for WAP payment
+    const url = await alipaySdk.pageExec("alipay.trade.wap.pay", params, {
+      notifyUrl: process.env.ALIPAY_NOTIFY_URL,
+      returnUrl: process.env.ALIPAY_RETURN_URL,
+    });
+
+    if (!url) throw new Error("Failed to build Alipay URL");
+
+    return cors({ url, out_trade_no: outTradeNo });
+  } catch (error) {
+    console.error("Alipay Pay Error:", error);
+    return cors({ error: error.message }, 500);
+  }
+};
 
 
 
