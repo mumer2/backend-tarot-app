@@ -1,18 +1,20 @@
-// netlify/functions/alipay-pay.js
 const { AlipaySdk } = require("alipay-sdk");
-const dotenv =require ("dotenv");
+const dotenv = require("dotenv");
 
-// ✅ Initialize Alipay
+// Load environment variables
+dotenv.config();
+
+// Initialize Alipay
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APPID,
-  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'), // handle env formatting
+  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
   gateway: 'https://openapi.alipaydev.com/gateway.do', // sandbox
   signType: 'RSA2',
 });
 
-// ✅ Netlify Lambda handler
-export async function handler(event, context) {
+// Netlify Lambda handler
+exports.handler = async (event) => {
   try {
     const body = JSON.parse(event.body || '{}');
     const { outTradeNo, subject, totalAmount, productCode } = body;
@@ -25,8 +27,8 @@ export async function handler(event, context) {
         total_amount: totalAmount || '0.01',
         product_code: productCode || 'QUICK_WAP_WAY',
       },
-      return_url: process.env.ALIPAY_RETURN_URL, // redirect back after payment
-      notify_url: process.env.ALIPAY_NOTIFY_URL, // async callback
+      return_url: process.env.ALIPAY_RETURN_URL,
+      notify_url: process.env.ALIPAY_NOTIFY_URL,
     });
 
     return {
@@ -41,7 +43,6 @@ export async function handler(event, context) {
     };
   }
 }
-
 
 
 

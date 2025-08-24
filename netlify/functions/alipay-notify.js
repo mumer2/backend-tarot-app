@@ -1,51 +1,41 @@
-// netlify/functions/alipay-notify.js
-const AlipaySdk = require("alipay-sdk").default;
-const qs = require("qs");
+const { AlipaySdk } = require("alipay-sdk");
+const dotenv = require("dotenv");
 
-// Same SDK config as create-alipay-order:
-const sdk = new AlipaySdk({
-  appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.ALIPAY_PRIVATE_KEY,
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipaydev.com/gateway.do",
-  signType: "RSA2",
-  timeout: 5000
+dotenv.config();
+
+const alipaySdk = new AlipaySdk({
+  appId: process.env.ALIPAY_APPID,
+  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
+  gateway: 'https://openapi.alipaydev.com/gateway.do',
+  signType: 'RSA2',
 });
 
 exports.handler = async (event) => {
   try {
-    if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: "Method Not Allowed" };
+    const body = JSON.parse(event.body || '{}');
+    const { trade_status, out_trade_no } = body;
+
+    if (trade_status === 'TRADE_SUCCESS') {
+      // Update order status in your database
+      console.log(`Payment successful for order: ${out_trade_no}`);
+      // Here you would typically update the order status in your database
+    } else {
+      console.log(`Payment not successful for order: ${out_trade_no}`);
     }
 
-    // Alipay posts form-urlencoded
-    const contentType = event.headers["content-type"] || event.headers["Content-Type"] || "";
-    if (!contentType.includes("application/x-www-form-urlencoded")) {
-      return { statusCode: 400, body: "Bad Request" };
-    }
-
-    const postData = qs.parse(event.body);
-
-    // Verify signature (use V2 if your values contain +/% issues)
-    const ok = sdk.checkNotifySignV2 ? sdk.checkNotifySignV2(postData) : sdk.checkNotifySign(postData, false);
-
-    if (!ok) {
-      console.error("Alipay notify signature check FAILED", postData);
-      return { statusCode: 400, body: "fail" };
-    }
-
-    // Example: handle trade_status
-    const { out_trade_no, trade_status } = postData;
-    // TODO: update your order in DB by out_trade_no
-
-    // Must return 'success'
-    return { statusCode: 200, body: "success" };
-  } catch (e) {
-    console.error("Notify error:", e);
-    return { statusCode: 500, body: "fail" };
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ success: true }),
+    };
+  } catch (error) {
+    console.error('Alipay Notify Error:', error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ success: false, error: error.message }),
+    };
   }
 };
-
 
 
 
