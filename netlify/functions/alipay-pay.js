@@ -1,19 +1,16 @@
 const { AlipaySdk } = require("alipay-sdk");
 const dotenv = require("dotenv");
 
-// Load environment variables
 dotenv.config();
 
-// Initialize Alipay
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
   privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
-  gateway: 'https://openapi.alipay.com/gateway.do', // Use sandbox for testing: https://openapi.alipaydev.com/gateway.do
+  gateway: 'https://openapi.alipay.com/gateway.do',
   signType: 'RSA2',
 });
 
-// Helper: CORS wrapper
 function cors(body, status = 200, contentType = "application/json") {
   return {
     statusCode: status,
@@ -46,27 +43,24 @@ exports.handler = async (event) => {
       quit_url: process.env.ALIPAY_RETURN_URL || "https://yourapp.com/recharge",
     };
 
-    // Use pageExecute to get a redirect URL for WAP payment
-    const url = await alipaySdk.pageExecute("alipay.trade.wap.pay", params, {
-      method: 'GET',
+    // Get HTML form for WAP payment
+    const html = await alipaySdk.pageExecute("alipay.trade.wap.pay", params, {
       notifyUrl: process.env.ALIPAY_NOTIFY_URL,
-      returnUrl: "https://successscreen.netlify.app/success.html",
+      returnUrl: process.env.ALIPAY_RETURN_URL,
     });
 
-    console.log("Alipay pageExecute result:", url);
+    console.log("Alipay pageExecute result:", html);
 
-    if (!url || typeof url !== "string" || !url.startsWith("https://")) {
-      throw new Error("Failed to build Alipay URL or invalid URL returned");
+    if (!html) {
+      throw new Error("Failed to build Alipay HTML form");
     }
 
-    return cors({ url, out_trade_no: outTradeNo });
+    return cors({ url: html, out_trade_no: outTradeNo });
   } catch (error) {
     console.error("Alipay Pay Error:", error);
     return cors({ error: error.message, stack: error.stack }, 500);
   }
 };
-
-
 
 
 
