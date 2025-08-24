@@ -1,6 +1,6 @@
 // netlify/functions/alipay-pay.js
-import AlipaySdk from 'alipay-sdk';
-import crypto from 'crypto';
+const { AlipaySdk } = require("alipay-sdk");
+const dotenv =require ("dotenv");
 
 // ✅ Initialize Alipay
 const alipaySdk = new AlipaySdk({
