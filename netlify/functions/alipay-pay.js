@@ -47,10 +47,11 @@ exports.handler = async (event) => {
     };
 
     // Use pageExec to get a redirect URL for WAP payment
-    const url = await alipaySdk.pageExec("alipay.trade.wap.pay", params, {
-      notifyUrl: process.env.ALIPAY_NOTIFY_URL,
-      returnUrl: process.env.ALIPAY_RETURN_URL,
-    });
+const url = await alipaySdk.pageExecute("alipay.trade.wap.pay", params, {
+  method: 'GET',
+  notifyUrl: process.env.ALIPAY_NOTIFY_URL,
+  returnUrl: process.env.ALIPAY_RETURN_URL,
+});
 
     if (!url) throw new Error("Failed to build Alipay URL");
 
