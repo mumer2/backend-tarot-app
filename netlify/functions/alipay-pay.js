@@ -1,14 +1,24 @@
 const { AlipaySdk } = require("alipay-sdk");
 const dotenv = require("dotenv");
+const { MongoClient } = require("mongodb");
 
 dotenv.config();
 
+let cachedDb = null;
+const connectToDatabase = async (uri) => {
+  if (cachedDb) return cachedDb;
+  const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+  await client.connect();
+  cachedDb = client.db("tarot-station");
+  return cachedDb;
+};
+
 const alipaySdk = new AlipaySdk({
   appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
-  gateway: 'https://openapi.alipay.com/gateway.do', // sandbox
-  signType: 'RSA2',
+  privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
+  gateway: "https://openapi.alipay.com/gateway.do", // production
+  signType: "RSA2",
 });
 
 function cors(body, status = 200, contentType = "application/json") {
@@ -33,7 +43,11 @@ exports.handler = async (event) => {
         ? JSON.parse(event.body || "{}")
         : event.queryStringParameters || {};
 
-    const outTradeNo = `ORDER_${Date.now()}_${userId || "guest"}`;
+    if (!userId) {
+      return cors({ error: "Missing userId" }, 400);
+    }
+
+    const outTradeNo = `ORDER_${Date.now()}_${userId}`;
 
     const params = {
       subject,
@@ -41,6 +55,7 @@ exports.handler = async (event) => {
       total_amount: String(amount),
       product_code: "QUICK_WAP_WAY",
       quit_url: process.env.ALIPAY_RETURN_URL || "https://yourapp.com/recharge",
+      passback_params: userId, // ✅ userId will be returned in notify
     };
 
     // Get HTML form for WAP payment
@@ -49,11 +64,22 @@ exports.handler = async (event) => {
       returnUrl: process.env.ALIPAY_RETURN_URL,
     });
 
-    console.log("Alipay pageExecute result:", html);
+    if (!html) throw new Error("Failed to build Alipay HTML form");
 
-    if (!html) {
-      throw new Error("Failed to build Alipay HTML form");
-    }
+    // ✅ Save a pending record in DB
+    const db = await connectToDatabase(process.env.MONGO_URI);
+    const recharges = db.collection("wallet_history");
+
+    await recharges.insertOne({
+      userId,
+      amount: parseFloat(amount),
+      method: "Alipay",
+      timestamp: new Date(),
+      orderId: outTradeNo,
+      status: "pending",
+    });
+
+    console.log(`✅ Alipay order created for ${userId}: ${outTradeNo}`);
 
     return cors({ url: html, out_trade_no: outTradeNo });
   } catch (error) {
@@ -65,24 +91,19 @@ exports.handler = async (event) => {
 
 
 
-
-
-
-
-
-
-// // netlify/functions/alipay-pay.js
 // const { AlipaySdk } = require("alipay-sdk");
+// const dotenv = require("dotenv");
 
-// const alipay = new AlipaySdk({
+// dotenv.config();
+
+// const alipaySdk = new AlipaySdk({
 //   appId: process.env.ALIPAY_APP_ID,
-//   privateKey: process.env.APP_PRIVATE_KEY, // ✅ PKCS#8 string with \n
-//   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-//   gateway: process.env.ALIPAY_GATEWAY || "https://openapi.alipay.com/gateway.do",
-//   signType: "RSA2",
+//   privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+//   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, '\n'),
+//   gateway: 'https://openapi.alipay.com/gateway.do', // sandbox
+//   signType: 'RSA2',
 // });
 
-// // Helper: CORS wrapper
 // function cors(body, status = 200, contentType = "application/json") {
 //   return {
 //     statusCode: status,
@@ -100,42 +121,38 @@ exports.handler = async (event) => {
 //   if (event.httpMethod === "OPTIONS") return cors("");
 
 //   try {
-//     const { amount = "9.99", subject = "Tarot Reading" } =
+//     const { amount = "9.99", subject = "Tarot Recharge", userId } =
 //       event.httpMethod === "POST"
 //         ? JSON.parse(event.body || "{}")
 //         : event.queryStringParameters || {};
 
-//     const outTradeNo = `ORDER_${Date.now()}`;
+//     const outTradeNo = `ORDER_${Date.now()}_${userId || "guest"}`;
 
 //     const params = {
-//       method: "alipay.trade.wap.pay",
-//       return_url: 'https://successscreen.netlify.app/success.html',
-//       notify_url: `${process.env.PUBLIC_BASE_URL}https://backend-tarot-app.netlify.app/.netlify/functions/alipay-notify`,
-//       bizContent: {
-//         out_trade_no: outTradeNo,
-//         product_code: "QUICK_WAP_WAY",
-//         total_amount: String(amount),
-//         subject,
-//         quit_url: `${process.env.PUBLIC_BASE_URL}/pay/cancel`,
-//       },
+//       subject,
+//       out_trade_no: outTradeNo,
+//       total_amount: String(amount),
+//       product_code: "QUICK_WAP_WAY",
+//       quit_url: process.env.ALIPAY_RETURN_URL || "https://yourapp.com/recharge",
 //     };
 
-//     let url;
+//     // Get HTML form for WAP payment
+//     const html = await alipaySdk.pageExecute("alipay.trade.wap.pay", params, {
+//       notifyUrl: process.env.ALIPAY_NOTIFY_URL,
+//       returnUrl: process.env.ALIPAY_RETURN_URL,
+//     });
 
-//     // Try pageExecute first, fallback to exec
-//     if (typeof alipay.pageExecute === "function") {
-//       const r = await alipay.pageExecute(params, { method: "GET" });
-//       url = typeof r === "string" ? r : r?.url;
-//     } else {
-//       const signedQuery = await alipay.exec("alipay.trade.wap.pay", params);
-//       url = `${alipay.config.gateway}?${signedQuery}`;
+//     console.log("Alipay pageExecute result:", html);
+
+//     if (!html) {
+//       throw new Error("Failed to build Alipay HTML form");
 //     }
 
-//     if (!url) throw new Error("Failed to build Alipay URL");
-
-//     return cors({ url, out_trade_no: outTradeNo });
-//   } catch (err) {
-//     console.error("❌ create-order error:", err);
-//     return cors({ error: String(err?.message || err) }, 500);
+//     return cors({ url: html, out_trade_no: outTradeNo });
+//   } catch (error) {
+//     console.error("Alipay Pay Error:", error);
+//     return cors({ error: error.message, stack: error.stack }, 500);
 //   }
 // };
+
+
