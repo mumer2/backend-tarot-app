@@ -1,7 +1,8 @@
 const { WechatPay } = require('wechatpay-node-v3');
 const dotenv = require('dotenv');
 const { MongoClient } = require('mongodb');
-const getRawBody = require('raw-body');
+const fs = require('fs');
+const path = require('path');
 
 dotenv.config();
 
@@ -14,11 +15,15 @@ const connectToDatabase = async (uri) => {
   return cachedDb;
 };
 
+// Read certs from files (adjust path as needed)
+const WECHAT_PUBLIC_KEY = fs.readFileSync(path.resolve(__dirname, '../../secrets/apiclient_cert.pem'), 'utf8');
+const WECHAT_PRIVATE_KEY = fs.readFileSync(path.resolve(__dirname, '../../secrets/apiclient_key.pem'), 'utf8');
+
 const wechatPay = new WechatPay({
   mchid: process.env.WECHAT_MCH_ID,
   appid: process.env.WECHAT_APPID,
-  publicKey: process.env.WECHAT_PUBLIC_KEY,
-  privateKey: process.env.WECHAT_PRIVATE_KEY,
+  publicKey: WECHAT_PUBLIC_KEY,
+  privateKey: WECHAT_PRIVATE_KEY,
   serial: process.env.WECHAT_SERIAL_NO,
 });
 
@@ -89,7 +94,6 @@ exports.handler = async (event, context) => {
     };
   }
 };
-
 
 
 

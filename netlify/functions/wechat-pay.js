@@ -1,6 +1,8 @@
 const { WechatPay } = require('wechatpay-node-v3');
 const dotenv = require('dotenv');
 const { MongoClient } = require('mongodb');
+const fs = require('fs');
+const path = require('path');
 
 dotenv.config();
 
@@ -13,21 +15,23 @@ const connectToDatabase = async (uri) => {
   return cachedDb;
 };
 
-function cors(body, status = 200, contentType = "application/json") {
-  return {
-    statusCode: status,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Content-Type": contentType,
-    },
-    body: typeof body === "string" ? body : JSON.stringify(body),
-  };
-}
+// Read certs from files (adjust path as needed)
+const WECHAT_PUBLIC_KEY = fs.readFileSync(path.resolve(__dirname, '../../secrets/apiclient_cert.pem'), 'utf8');
+const WECHAT_PRIVATE_KEY = fs.readFileSync(path.resolve(__dirname, '../../secrets/apiclient_key.pem'), 'utf8');
 
 exports.handler = async (event) => {
-  if (event.httpMethod === "OPTIONS") return cors("");
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Content-Type": "application/json",
+      },
+      body: "",
+    };
+  }
 
   try {
     const { amount, userId } =
@@ -35,14 +39,18 @@ exports.handler = async (event) => {
         ? JSON.parse(event.body || "{}")
         : event.queryStringParameters || {};
 
-    if (!amount || !userId) return cors({ error: "Missing amount or userId" }, 400);
+    if (!amount || !userId) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "Missing amount or userId" }),
+      };
+    }
 
-    // Setup WeChat Pay
     const wechatPay = new WechatPay({
       mchid: process.env.WECHAT_MCH_ID,
       appid: process.env.WECHAT_APPID,
-      publicKey: process.env.WECHAT_PUBLIC_KEY, // platform public key (certificate)
-      privateKey: process.env.WECHAT_PRIVATE_KEY, // merchant private key
+      publicKey: WECHAT_PUBLIC_KEY,
+      privateKey: WECHAT_PRIVATE_KEY,
       serial: process.env.WECHAT_SERIAL_NO,
     });
 
@@ -77,13 +85,23 @@ exports.handler = async (event) => {
         status: "pending",
       });
 
-      return cors({ paymentUrl: result.h5_url, out_trade_no });
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentUrl: result.h5_url, out_trade_no }),
+      };
     } else {
-      return cors({ error: "Failed to create WeChat Pay order" }, 500);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Failed to create WeChat Pay order" }),
+      };
     }
   } catch (error) {
     console.error("WeChat Pay Error:", error);
-    return cors({ error: error.message, stack: error.stack }, 500);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message, stack: error.stack }),
+    };
   }
 };
 
