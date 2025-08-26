@@ -1,8 +1,10 @@
-const crypto = require("crypto");
-const xml2js = require("xml2js");
-const { MongoClient } = require("mongodb");
+const { WechatPay } = require('wechatpay-node-v3');
+const dotenv = require('dotenv');
+const { MongoClient } = require('mongodb');
+const getRawBody = require('raw-body');
 
-// MongoDB connection
+dotenv.config();
+
 let cachedDb = null;
 const connectToDatabase = async (uri) => {
   if (cachedDb) return cachedDb;
@@ -12,74 +14,79 @@ const connectToDatabase = async (uri) => {
   return cachedDb;
 };
 
-const WECHAT_MCH_ID = process.env.WECHAT_MCH_ID;
-const WECHAT_API_KEY = process.env.WECHAT_API_KEY;
+const wechatPay = new WechatPay({
+  mchid: process.env.WECHAT_MCH_ID,
+  appid: process.env.WECHAT_APPID,
+  publicKey: process.env.WECHAT_PUBLIC_KEY,
+  privateKey: process.env.WECHAT_PRIVATE_KEY,
+  serial: process.env.WECHAT_SERIAL_NO,
+});
 
-// Parse XML to JS
-const parseXML = async (xmlStr) => {
-  return await xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
-};
-
-// Convert JS to XML
-const buildXML = (obj) => {
-  let xml = "<xml>";
-  for (let key in obj) {
-    xml += `<${key}>${obj[key]}</${key}>`;
-  }
-  xml += "</xml>";
-  return xml;
-};
-
-// Verify WeChat signature
-const verifySign = (params) => {
-  const sign = params.sign;
-  delete params.sign;
-  const keys = Object.keys(params).sort();
-  const stringA = keys.map(k => `${k}=${params[k]}`).join("&");
-  const stringSignTemp = stringA + "&key=" + WECHAT_API_KEY;
-  const mySign = crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
-  return mySign === sign;
-};
-
-exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
+exports.handler = async (event, context) => {
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+      },
+      body: "",
+    };
   }
 
   try {
-    const data = await parseXML(event.body);
+    // Get raw body for signature verification
+    const body = event.isBase64Encoded
+      ? Buffer.from(event.body, 'base64')
+      : Buffer.from(event.body);
 
-    if (!verifySign(data.xml)) {
-      return { statusCode: 400, body: buildXML({ return_code: "FAIL", return_msg: "Signature verification failed" }) };
-    }
+    // WeChat headers for signature verification
+    const headers = event.headers;
+    const timestamp = headers['wechatpay-timestamp'];
+    const nonce = headers['wechatpay-nonce'];
+    const signature = headers['wechatpay-signature'];
+    const serial = headers['wechatpay-serial'];
 
-    // Only process successful payments
-    if (data.xml.result_code === "SUCCESS" && data.xml.return_code === "SUCCESS") {
-      const outTradeNo = data.xml.out_trade_no;
-      const totalFee = parseInt(data.xml.total_fee); // in cents
-      const amount = totalFee / 100; // convert to RMB
+    // Verify and decrypt notification
+    const notifyData = await wechatPay.callback(
+      body,
+      signature,
+      timestamp,
+      nonce,
+      serial
+    );
 
-      const userId = data.xml.attach || null; // optional: attach userId in order
+    // Example: { out_trade_no, transaction_id, trade_state, ... }
+    const { out_trade_no, trade_state, amount } = notifyData;
 
-      if (userId) {
-        const db = await connectToDatabase(process.env.MONGO_URI);
-        const usersCollection = db.collection("users");
-
-        // Increment user wallet balance
-        await usersCollection.updateOne(
-          { _id: userId },
-          { $inc: { wallet_balance: amount } }
-        );
+    // Update order in DB
+    const db = await connectToDatabase(process.env.MONGO_URI);
+    const recharges = db.collection("wallet_history");
+    await recharges.updateOne(
+      { orderId: out_trade_no },
+      {
+        $set: {
+          status: trade_state === "SUCCESS" ? "success" : trade_state.toLowerCase(),
+          wechat_transaction_id: notifyData.transaction_id,
+          paid_amount: amount && amount.payer_total ? amount.payer_total / 100 : undefined,
+          paid_at: new Date(),
+        },
       }
+    );
 
-      return { statusCode: 200, body: buildXML({ return_code: "SUCCESS", return_msg: "OK" }) };
-    }
-
-    return { statusCode: 400, body: buildXML({ return_code: "FAIL", return_msg: "Payment failed" }) };
-
-  } catch (err) {
-    console.error("Notify error:", err);
-    return { statusCode: 500, body: buildXML({ return_code: "FAIL", return_msg: "Internal Error" }) };
+    // Respond to WeChat (must be exactly this for success)
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "SUCCESS", message: "成功" }),
+    };
+  } catch (error) {
+    console.error("WeChat Notify Error:", error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ code: "FAIL", message: error.message }),
+    };
   }
 };
 

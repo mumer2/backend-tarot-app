@@ -1,86 +1,177 @@
-// functions/wechat-pay.js
-const axios = require("axios");
-const crypto = require("crypto");
-const xml2js = require("xml2js");
+const { WechatPay } = require('wechatpay-node-v3');
+const dotenv = require('dotenv');
+const { MongoClient } = require('mongodb');
 
-const APP_ID = process.env.WECHAT_APPID;
-const MCH_ID = process.env.WECHAT_MCH_ID;
-const API_KEY = process.env.WECHAT_API_KEY;
-const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // HTTPS notify URL
+dotenv.config();
 
-if (!APP_ID || !MCH_ID || !API_KEY || !NOTIFY_URL) {
-  console.error("❌ Missing WeChat environment variables");
+let cachedDb = null;
+const connectToDatabase = async (uri) => {
+  if (cachedDb) return cachedDb;
+  const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+  await client.connect();
+  cachedDb = client.db("tarot-station");
+  return cachedDb;
+};
+
+function cors(body, status = 200, contentType = "application/json") {
+  return {
+    statusCode: status,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Content-Type": contentType,
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  };
 }
 
-const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
-
-const generateSign = (params) => {
-  const sortedKeys = Object.keys(params).sort();
-  const stringA = sortedKeys.map(k => `${k}=${params[k]}`).join("&");
-  const stringSignTemp = `${stringA}&key=${API_KEY}`;
-  return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
-};
-
-const buildXML = (obj) => {
-  let xml = "<xml>";
-  for (let key in obj) xml += `<${key}>${obj[key]}</${key}>`;
-  xml += "</xml>";
-  return xml;
-};
-
-const parseXML = async (xmlStr) => {
-  return await xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
-};
-
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+  if (event.httpMethod === "OPTIONS") return cors("");
 
   try {
-    const { amount, userId } = JSON.parse(event.body);
+    const { amount, userId } =
+      event.httpMethod === "POST"
+        ? JSON.parse(event.body || "{}")
+        : event.queryStringParameters || {};
 
-    if (!amount || !userId) return { statusCode: 400, body: "Missing amount or userId" };
+    if (!amount || !userId) return cors({ error: "Missing amount or userId" }, 400);
 
-    const data = {
-      appid: APP_ID,
-      mch_id: MCH_ID,
-      nonce_str: generateNonceStr(),
-      body: "Tarot App Recharge",
-      out_trade_no: `RNWX${Date.now()}`,
-      total_fee: Math.round(amount), // amount in cents
-      spbill_create_ip: "127.0.0.1",
-      notify_url: NOTIFY_URL,
-      trade_type: "MWEB",
-      attach: userId // used in notify to credit balance
-    };
+    // Setup WeChat Pay
+    const wechatPay = new WechatPay({
+      mchid: process.env.WECHAT_MCH_ID,
+      appid: process.env.WECHAT_APPID,
+      publicKey: process.env.WECHAT_PUBLIC_KEY, // platform public key (certificate)
+      privateKey: process.env.WECHAT_PRIVATE_KEY, // merchant private key
+      serial: process.env.WECHAT_SERIAL_NO,
+    });
 
-    data.sign = generateSign(data);
+    // Create H5 order
+    const out_trade_no = `ORDER_${Date.now()}_${userId}`;
+    const result = await wechatPay.transactions_h5({
+      mchid: process.env.WECHAT_MCH_ID,
+      appid: process.env.WECHAT_APPID,
+      description: "Tarot Recharge",
+      out_trade_no,
+      amount: {
+        total: Number(amount), // amount in cents
+        currency: "CNY",
+      },
+      scene_info: {
+        payer_client_ip: "127.0.0.1", // You may want to get the real client IP
+        h5_info: { type: "Wap" },
+      },
+      notify_url: process.env.WECHAT_NOTIFY_URL,
+    });
 
-    console.log("WeChat Request XML:", buildXML(data));
+    if (result && result.h5_url) {
+      // Save pending order to DB
+      const db = await connectToDatabase(process.env.MONGO_URI);
+      const recharges = db.collection("wallet_history");
+      await recharges.insertOne({
+        userId,
+        amount: Number(amount) / 100,
+        method: "WeChat",
+        timestamp: new Date(),
+        orderId: out_trade_no,
+        status: "pending",
+      });
 
-    const response = await axios.post(
-      "https://api.mch.weixin.qq.com/pay/unifiedorder",
-      buildXML(data),
-      { headers: { "Content-Type": "text/xml" } }
-    );
-
-    const result = await parseXML(response.data);
-
-    if (result.xml && result.xml.return_code === "SUCCESS" && result.xml.result_code === "SUCCESS") {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ paymentUrl: result.xml.mweb_url }),
-      };
+      return cors({ paymentUrl: result.h5_url, out_trade_no });
     } else {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: result.xml.return_msg || result.xml.err_code_des }),
-      };
+      return cors({ error: "Failed to create WeChat Pay order" }, 500);
     }
-  } catch (err) {
-    console.error("WeChat Pay Error:", err.message);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+  } catch (error) {
+    console.error("WeChat Pay Error:", error);
+    return cors({ error: error.message, stack: error.stack }, 500);
   }
 };
+
+
+
+// // functions/wechat-pay.js
+// const axios = require("axios");
+// const crypto = require("crypto");
+// const xml2js = require("xml2js");
+
+// const APP_ID = process.env.WECHAT_APPID;
+// const MCH_ID = process.env.WECHAT_MCH_ID;
+// const API_KEY = process.env.WECHAT_API_KEY;
+// const NOTIFY_URL = process.env.WECHAT_NOTIFY_URL; // HTTPS notify URL
+
+// if (!APP_ID || !MCH_ID || !API_KEY || !NOTIFY_URL) {
+//   console.error("❌ Missing WeChat environment variables");
+// }
+
+// const generateNonceStr = () => Math.random().toString(36).substring(2, 15);
+
+// const generateSign = (params) => {
+//   const sortedKeys = Object.keys(params).sort();
+//   const stringA = sortedKeys.map(k => `${k}=${params[k]}`).join("&");
+//   const stringSignTemp = `${stringA}&key=${API_KEY}`;
+//   return crypto.createHash("md5").update(stringSignTemp, "utf8").digest("hex").toUpperCase();
+// };
+
+// const buildXML = (obj) => {
+//   let xml = "<xml>";
+//   for (let key in obj) xml += `<${key}>${obj[key]}</${key}>`;
+//   xml += "</xml>";
+//   return xml;
+// };
+
+// const parseXML = async (xmlStr) => {
+//   return await xml2js.parseStringPromise(xmlStr, { explicitArray: false, trim: true });
+// };
+
+// exports.handler = async (event) => {
+//   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+
+//   try {
+//     const { amount, userId } = JSON.parse(event.body);
+
+//     if (!amount || !userId) return { statusCode: 400, body: "Missing amount or userId" };
+
+//     const data = {
+//       appid: APP_ID,
+//       mch_id: MCH_ID,
+//       nonce_str: generateNonceStr(),
+//       body: "Tarot App Recharge",
+//       out_trade_no: `RNWX${Date.now()}`,
+//       total_fee: Math.round(amount), // amount in cents
+//       spbill_create_ip: "127.0.0.1",
+//       notify_url: NOTIFY_URL,
+//       trade_type: "MWEB",
+//       attach: userId // used in notify to credit balance
+//     };
+
+//     data.sign = generateSign(data);
+
+//     console.log("WeChat Request XML:", buildXML(data));
+
+//     const response = await axios.post(
+//       "https://api.mch.weixin.qq.com/pay/unifiedorder",
+//       buildXML(data),
+//       { headers: { "Content-Type": "text/xml" } }
+//     );
+
+//     const result = await parseXML(response.data);
+
+//     if (result.xml && result.xml.return_code === "SUCCESS" && result.xml.result_code === "SUCCESS") {
+//       return {
+//         statusCode: 200,
+//         body: JSON.stringify({ paymentUrl: result.xml.mweb_url }),
+//       };
+//     } else {
+//       return {
+//         statusCode: 400,
+//         body: JSON.stringify({ error: result.xml.return_msg || result.xml.err_code_des }),
+//       };
+//     }
+//   } catch (err) {
+//     console.error("WeChat Pay Error:", err.message);
+//     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+//   }
+// };
 
 
 
