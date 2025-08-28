@@ -15,18 +15,19 @@ const md5 = (input) =>
 const sha256 = (input) =>
   crypto.createHash("sha256").update(input).digest("hex").toLowerCase();
 
-// ✅ Validate Chinese mainland phone number (13x, 15x … 19x)
+// ✅ Validate Chinese mainland phone number (13x … 19x)
 const isChinesePhoneNumber = (number) => /^1[3-9]\d{9}$/.test(number);
 
-// ✅ Normalize phone number (remove `+` or spaces)
+// ✅ Normalize phone number (always +86 prefix for China)
 const formatPhoneNumber = (phone) => {
   let formatted = phone.trim().replace(/\s+/g, "");
-  if (formatted.startsWith("+")) formatted = formatted.slice(1);
+  if (formatted.startsWith("+")) return formatted;
+  if (isChinesePhoneNumber(formatted)) return `+86${formatted}`;
   return formatted;
 };
 
-// 📬 Delivery check (if supported by provider)
-async function checkDeliveryStatus(msgId) {
+// 📬 Delivery check
+async function checkDeliveryStatus(msgId, db, phone) {
   try {
     const res = await axios.post(
       "https://api.51welink.com/EncryptionSubmit/QuerySend.ashx",
@@ -35,10 +36,26 @@ async function checkDeliveryStatus(msgId) {
     );
 
     console.log("📦 Delivery Check Response:", res.data);
-    return res.data;
+
+    const delivered =
+      res.data.Status && res.data.Status.toUpperCase() === "DELIVRD";
+
+    // Update delivery result in logs
+    await db.collection("sms_logs").updateOne(
+      { msgId },
+      {
+        $set: {
+          deliveryStatus: delivered ? "delivered" : res.data.Status,
+          deliveryCheckedAt: new Date(),
+          deliveryResponse: res.data,
+        },
+      }
+    );
+
+    return delivered;
   } catch (err) {
     console.error("⚠️ Delivery check error:", err.message);
-    return null;
+    return false;
   }
 }
 
@@ -63,7 +80,6 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ Only allow Chinese numbers
     if (!isChinesePhoneNumber(phone)) {
       return {
         statusCode: 400,
@@ -77,7 +93,7 @@ exports.handler = async (event) => {
     const formattedPhone = formatPhoneNumber(phone);
     console.log("✅ Final PhoneNos:", formattedPhone);
 
-    // Generate OTP & prepare credentials
+    // Generate OTP & credentials
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const timestamp = Math.floor(Date.now() / 1000);
     const random = Math.floor(Math.random() * 9000000000) + 100000000;
@@ -85,7 +101,6 @@ exports.handler = async (event) => {
     const accessKeyString = `AccountId=${ACCOUNT_ID}&PhoneNos=${formattedPhone}&Password=${passwordHash}&Random=${random}&Timestamp=${timestamp}`;
     const accessKey = sha256(accessKeyString);
 
-    // 📨 Payload for Welink API
     const requestBody = {
       AccountId: ACCOUNT_ID,
       AccessKey: accessKey,
@@ -115,17 +130,18 @@ exports.handler = async (event) => {
     const db = mongo.db("tarot-station");
 
     // Always log SMS attempt
-    await db.collection("sms_logs").insertOne({
+    const logEntry = {
       phone: formattedPhone,
       code,
-      status: smsRes.data.Result === "succ" ? "accepted" : "failed",
+      status: smsRes.data.Result === "succ" ? "submitted" : "failed",
       reason: smsRes.data.Reason || null,
       msgId: smsRes.data.MsgId || null,
       providerResponse: smsRes.data,
       createdAt: new Date(),
-    });
+    };
+    await db.collection("sms_logs").insertOne(logEntry);
 
-    // Create indexes for faster queries
+    // Indexes for speed
     await db.collection("sms_logs").createIndex({ phone: 1, createdAt: -1 });
     await db.collection("otps").createIndex({ phone: 1, createdAt: -1 });
 
@@ -139,16 +155,16 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ Store OTP (for login verification)
+    // ✅ Store OTP
     await db.collection("otps").updateOne(
       { phone: formattedPhone },
       { $set: { code, createdAt: new Date() } },
       { upsert: true }
     );
 
-    // Optional: check delivery status
+    // Optional: auto-check delivery after 5 seconds
     if (smsRes.data.MsgId) {
-      setTimeout(() => checkDeliveryStatus(smsRes.data.MsgId), 5000); // check after 5s
+      setTimeout(() => checkDeliveryStatus(smsRes.data.MsgId, db, formattedPhone), 5000);
     }
 
     return {
@@ -173,7 +189,6 @@ exports.handler = async (event) => {
     if (mongo) await mongo.close();
   }
 };
-
 
 
 
