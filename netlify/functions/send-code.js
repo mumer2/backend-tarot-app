@@ -15,15 +15,32 @@ const md5 = (input) =>
 const sha256 = (input) =>
   crypto.createHash("sha256").update(input).digest("hex").toLowerCase();
 
-// ✅ Validate Chinese mainland phone number (e.g., 13x, 15x, ..., 19x)
+// ✅ Validate Chinese mainland phone number (13x, 15x … 19x)
 const isChinesePhoneNumber = (number) => /^1[3-9]\d{9}$/.test(number);
 
-// ✅ Format phone to remove any `+` and spaces
+// ✅ Normalize phone number (remove `+` or spaces)
 const formatPhoneNumber = (phone) => {
   let formatted = phone.trim().replace(/\s+/g, "");
   if (formatted.startsWith("+")) formatted = formatted.slice(1);
   return formatted;
 };
+
+// 📬 Delivery check (if supported by provider)
+async function checkDeliveryStatus(msgId) {
+  try {
+    const res = await axios.post(
+      "https://api.51welink.com/EncryptionSubmit/QuerySend.ashx",
+      { MsgId: msgId },
+      { headers: { "Content-Type": "application/json" } }
+    );
+
+    console.log("📦 Delivery Check Response:", res.data);
+    return res.data;
+  } catch (err) {
+    console.error("⚠️ Delivery check error:", err.message);
+    return null;
+  }
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -46,7 +63,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ Restrict to Chinese numbers only
+    // ✅ Only allow Chinese numbers
     if (!isChinesePhoneNumber(phone)) {
       return {
         statusCode: 400,
@@ -60,7 +77,7 @@ exports.handler = async (event) => {
     const formattedPhone = formatPhoneNumber(phone);
     console.log("✅ Final PhoneNos:", formattedPhone);
 
-    // Generate OTP and prepare credentials
+    // Generate OTP & prepare credentials
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const timestamp = Math.floor(Date.now() / 1000);
     const random = Math.floor(Math.random() * 9000000000) + 100000000;
@@ -92,12 +109,12 @@ exports.handler = async (event) => {
 
     console.log("📩 SMS Response:", smsRes.data);
 
-    // ✅ Open DB connection
+    // ✅ Connect DB
     mongo = new MongoClient(MONGO_URI);
     await mongo.connect();
     const db = mongo.db("tarot-station");
 
-    // Always log SMS attempts
+    // Always log SMS attempt
     await db.collection("sms_logs").insertOne({
       phone: formattedPhone,
       code,
@@ -107,6 +124,10 @@ exports.handler = async (event) => {
       providerResponse: smsRes.data,
       createdAt: new Date(),
     });
+
+    // Create indexes for faster queries
+    await db.collection("sms_logs").createIndex({ phone: 1, createdAt: -1 });
+    await db.collection("otps").createIndex({ phone: 1, createdAt: -1 });
 
     if (smsRes.data.Result !== "succ") {
       return {
@@ -125,14 +146,17 @@ exports.handler = async (event) => {
       { upsert: true }
     );
 
-    // Ensure fast lookup on phone + createdAt
-    await db.collection("otps").createIndex({ phone: 1, createdAt: -1 });
+    // Optional: check delivery status
+    if (smsRes.data.MsgId) {
+      setTimeout(() => checkDeliveryStatus(smsRes.data.MsgId), 5000); // check after 5s
+    }
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        message: "OTP sent successfully.",
+        message: "OTP sent successfully (submitted to provider).",
+        msgId: smsRes.data.MsgId || null,
       }),
     };
   } catch (error) {
@@ -149,6 +173,7 @@ exports.handler = async (event) => {
     if (mongo) await mongo.close();
   }
 };
+
 
 
 
