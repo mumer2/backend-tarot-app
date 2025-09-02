@@ -43,21 +43,20 @@ exports.handler = async (event) => {
       const orderId = params.out_trade_no;
       const amount = parseFloat(params.total_amount);
 
-      // 3. Update order and wallet in DB
       const db = await connectToDatabase(process.env.MONGO_URI);
       const wallets = db.collection("wallets");
       const recharges = db.collection("wallet_history");
 
-      // Update wallet balance
+      // ✅ Update wallet balance only when success
       await wallets.updateOne(
         { userId },
         { $inc: { balance: amount } },
         { upsert: true }
       );
 
-      // Save recharge history
+      // ✅ Save recharge history only when success
       await recharges.updateOne(
-        { orderId },
+        { orderId }, // ensure unique per order
         {
           $set: {
             userId,
@@ -66,15 +65,15 @@ exports.handler = async (event) => {
             timestamp: new Date(),
             status: "completed",
             alipay_trade_no: params.trade_no,
-          }
+          },
         },
         { upsert: true }
       );
 
-      console.log(`✅ Wallet updated and recharge logged for user ${userId}: +${amount} RMB`);
+      console.log(`✅ Recharge history created for user ${userId}: +${amount} RMB`);
     }
 
-    // 4. Respond to Alipay (must be "success")
+    // 3. Respond to Alipay (must be "success")
     return {
       statusCode: 200,
       headers: { "Content-Type": "text/plain" },
@@ -85,6 +84,101 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: "fail" };
   }
 };
+
+
+
+
+// const { AlipaySdk } = require("alipay-sdk");
+// const dotenv = require("dotenv");
+// const { MongoClient } = require("mongodb");
+// const qs = require("querystring");
+
+// dotenv.config();
+
+// let cachedDb = null;
+// const connectToDatabase = async (uri) => {
+//   if (cachedDb) return cachedDb;
+//   const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+//   await client.connect();
+//   cachedDb = client.db("tarot-station");
+//   return cachedDb;
+// };
+
+// const alipaySdk = new AlipaySdk({
+//   appId: process.env.ALIPAY_APP_ID,
+//   privateKey: process.env.APP_PRIVATE_KEY.replace(/\\n/g, "\n"),
+//   alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY.replace(/\\n/g, "\n"),
+//   gateway: "https://openapi.alipay.com/gateway.do",
+//   signType: "RSA2",
+// });
+
+// exports.handler = async (event) => {
+//   if (event.httpMethod !== "POST") {
+//     return { statusCode: 405, body: "Method Not Allowed" };
+//   }
+
+//   try {
+//     // Alipay sends x-www-form-urlencoded
+//     const params = qs.parse(event.body);
+
+//     // 1. Verify signature
+//     const isValid = alipaySdk.checkNotifySign(params);
+//     if (!isValid) {
+//       return { statusCode: 400, body: "Invalid signature" };
+//     }
+
+//     // 2. Check payment status
+//     if (params.trade_status === "TRADE_SUCCESS" || params.trade_status === "TRADE_FINISHED") {
+//       const userId = params.passback_params;
+//       const orderId = params.out_trade_no;
+//       const amount = parseFloat(params.total_amount);
+
+//       // 3. Update order and wallet in DB
+//       const db = await connectToDatabase(process.env.MONGO_URI);
+//       const wallets = db.collection("wallets");
+//       const recharges = db.collection("wallet_history");
+
+//       // Update wallet balance
+//       await wallets.updateOne(
+//         { userId },
+//         { $inc: { balance: amount } },
+//         { upsert: true }
+//       );
+
+//       // Save recharge history
+//       await recharges.updateOne(
+//         { orderId },
+//         {
+//           $set: {
+//             userId,
+//             amount,
+//             method: "Alipay",
+//             timestamp: new Date(),
+//             status: "completed",
+//             alipay_trade_no: params.trade_no,
+//           }
+//         },
+//         { upsert: true }
+//       );
+
+//       console.log(`✅ Wallet updated and recharge logged for user ${userId}: +${amount} RMB`);
+//     }
+
+//     // 4. Respond to Alipay (must be "success")
+//     return {
+//       statusCode: 200,
+//       headers: { "Content-Type": "text/plain" },
+//       body: "success",
+//     };
+//   } catch (error) {
+//     console.error("Alipay Notify Error:", error);
+//     return { statusCode: 500, body: "fail" };
+//   }
+// };
+
+
+
+
 
 // const { AlipaySdk } = require("alipay-sdk");
 // const dotenv = require("dotenv");
